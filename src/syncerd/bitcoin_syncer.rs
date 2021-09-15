@@ -70,6 +70,7 @@ impl From<&ElectrumRpc> for Vec<Script> {
     }
 }
 
+#[derive(Debug)]
 pub struct Block {
     height: u64,
     block_hash: BlockHash,
@@ -198,10 +199,15 @@ impl ElectrumRpc {
                 Ok(tx) => {
                     debug!("Updated tx: {}", &tx_id);
                     let blockhash = tx.blockhash.map(|x| x.to_vec());
-                    state.change_transaction(tx.txid.to_vec(), blockhash, tx.confirmations)
+                    let confs = match tx.confirmations {
+                        Some(confs) => confs,
+                        None => 0,
+                    };
+                    state.change_transaction(tx.txid.to_vec(), blockhash, Some(confs))
                 }
                 Err(err) => {
-                    debug!("{}", err)
+                    debug!("error getting transaction, treating as not found: {}", err);
+                    state.change_transaction(tx_id.to_vec(), None, None)
                 }
             }
         }
@@ -405,7 +411,7 @@ impl Synclet for BitcoinSyncer {
                 while let Some(block_notif) = new_blocks.pop() {
                     state.change_height(block_notif.height, block_notif.block_hash.to_vec());
                 }
-                if !state.events.is_empty() || i == 0 || i % 25 == 0 {
+                if !state.events.is_empty() || i == 0 || i % 5 == 0 {
                     trace!("pending events: {:?}\n emmiting them now", state.events);
                     rpc.query_transactions(&mut state);
                 }
