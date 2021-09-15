@@ -218,13 +218,13 @@ fn bitcoin_syncer_address_test() {
     tx.send(watch_address_task_2).unwrap();
 
     // send some coins to address1
-    bitcoin_rpc
+    let txid = bitcoin_rpc
         .send_to_address(&address1, amount, None, None, None, None, None, None)
         .unwrap();
     println!("waiting for watch transaction message");
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
-    assert_address_transaction(request, amount.as_sat(), vec![]);
+    assert_address_transaction(request, amount.as_sat(), vec![txid.to_vec()]);
 
     // now generate a block for address1, then wait for the response and test it
     let block_hash = bitcoin_rpc.generate_to_address(1, &address1).unwrap();
@@ -232,25 +232,38 @@ fn bitcoin_syncer_address_test() {
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
     let block = bitcoin_rpc.get_block(&block_hash[0]).unwrap();
-    let address_transaction_amount = find_coinbase_transaction_amount(block.txdata);
-    assert_address_transaction(request, address_transaction_amount, block_hash[0].to_vec());
+    let address_transaction_amount = find_coinbase_transaction_amount(block.txdata.clone());
+    let address_txid = find_coinbase_transaction_id(block.txdata);
+    assert_address_transaction(
+        request,
+        address_transaction_amount,
+        vec![address_txid.to_vec()],
+    );
 
     // then send a transaction to the other address we are watching
-    bitcoin_rpc
+    let txid_1 = bitcoin_rpc
         .send_to_address(&address2, amount, None, None, None, None, None, None)
         .unwrap();
-    bitcoin_rpc
+    let txid_2 = bitcoin_rpc
         .send_to_address(&address2, amount, None, None, None, None, None, None)
         .unwrap();
     println!("waiting for watch transaction message");
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
-    assert_address_transaction(request, amount.as_sat(), vec![]);
+    assert_address_transaction(
+        request,
+        amount.as_sat(),
+        vec![txid_1.to_vec(), txid_2.to_vec()],
+    );
 
     println!("waiting for watch transaction message");
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
-    assert_address_transaction(request, amount.as_sat(), vec![]);
+    assert_address_transaction(
+        request,
+        amount.as_sat(),
+        vec![txid_1.to_vec(), txid_2.to_vec()],
+    );
 
     // watch for the same address, it should already contain transactions
     let watch_address_task_3 = SyncerdTask {
@@ -266,11 +279,19 @@ fn bitcoin_syncer_address_test() {
     println!("waiting for watch transaction message");
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
-    assert_address_transaction(request, amount.as_sat(), vec![]);
+    assert_address_transaction(
+        request,
+        amount.as_sat(),
+        vec![txid_1.to_vec(), txid_2.to_vec()],
+    );
     println!("waiting for watch transaction message");
     let message = rx_event.recv_multipart(0).unwrap();
     let request = get_request_from_message(message);
-    assert_address_transaction(request, amount.as_sat(), vec![]);
+    assert_address_transaction(
+        request,
+        amount.as_sat(),
+        vec![txid_1.to_vec(), txid_2.to_vec()],
+    );
 
     let address4 = bitcoin_rpc.get_new_address(None, None).unwrap();
     let addendum_4 = AddressAddendum::Bitcoin(BtcAddressAddendum {
@@ -290,7 +311,7 @@ fn bitcoin_syncer_address_test() {
         })
         .unwrap();
     }
-    bitcoin_rpc
+    let txid = bitcoin_rpc
         .send_to_address(&address4, amount, None, None, None, None, None, None)
         .unwrap();
 
@@ -298,8 +319,19 @@ fn bitcoin_syncer_address_test() {
         println!("waiting for repeated watch transaction message");
         let message = rx_event.recv_multipart(0).unwrap();
         let request = get_request_from_message(message);
-        assert_address_transaction(request, amount.as_sat(), vec![]);
+        assert_address_transaction(request, amount.as_sat(), vec![txid.to_vec()]);
     }
+}
+
+fn find_coinbase_transaction_id(txs: Vec<bitcoin::Transaction>) -> bitcoin::Txid {
+    for transaction in txs {
+        if transaction.input[0].previous_output.txid
+            == bitcoin::Txid::from_slice(&vec![0; 32]).unwrap()
+        {
+            return transaction.txid();
+        }
+    }
+    bitcoin::Txid::from_slice(&vec![0; 32]).unwrap()
 }
 
 fn find_coinbase_transaction_amount(txs: Vec<bitcoin::Transaction>) -> u64 {
@@ -358,16 +390,12 @@ async fn functional_monero_syncer_test() {
         .unwrap();
 }
 
-fn assert_address_transaction(
-    request: Request,
-    expected_amount: u64,
-    expected_block_hash: Vec<u8>,
-) {
+fn assert_address_transaction(request: Request, expected_amount: u64, expected_txid: Vec<Vec<u8>>) {
     match request {
         Request::SyncerdBridgeEvent(event) => match event.event {
             Event::AddressTransaction(address_transaction) => {
                 assert_eq!(address_transaction.amount, expected_amount);
-                assert_eq!(address_transaction.block, expected_block_hash);
+                assert!(expected_txid.contains(&address_transaction.hash));
             }
             _ => panic!("expected address transaction event"),
         },

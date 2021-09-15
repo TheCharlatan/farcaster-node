@@ -233,20 +233,9 @@ fn query_addr_history(client: &mut Client, script: Script) -> Result<Vec<Address
             debug!("ignoring outgoing transaction in handle address notification, continuing");
             continue;
         }
-        // if the transaction is mined, get the blockhash of the block containing it
-        let block_hash = if hist.height > 0 {
-            client
-                .transaction_get_verbose(&txid)?
-                .blockhash
-                .map(|x| x.to_vec())
-                .unwrap_or_else(|| vec![])
-        } else {
-            vec![]
-        };
         addr_txs.push(AddressTx {
             our_amount,
             tx_id: txid.to_vec(),
-            block_hash,
             tx: bitcoin::consensus::serialize(&tx),
         })
     }
