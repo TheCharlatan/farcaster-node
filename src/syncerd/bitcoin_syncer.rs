@@ -409,6 +409,7 @@ impl Synclet for BitcoinSyncer {
                     trace!("pending events: {:?}\n emmiting them now", state.events);
                     rpc.query_transactions(&mut state);
                 }
+
                 // now consume the requests
                 while let Some((event, source)) = state.events.pop() {
                     debug!(

@@ -299,10 +299,10 @@ fn bitcoin_syncer_address_test() {
         from_height: 0,
         script_pubkey: address4.script_pubkey(),
     });
-    for _ in 0..5 {
+    for i in 0..5 {
         tx.send(SyncerdTask {
             task: Task::WatchAddress(WatchAddress {
-                id: 1,
+                id: i,
                 lifetime: blocks + 5,
                 addendum: addendum_4.clone(),
                 include_tx: Boolean::True,
