@@ -484,6 +484,35 @@ fn bitcoin_syncer_transaction_test() {
     assert_transaction_confirmations(request, 0, vec![0]);
 }
 
+fn assert_address_transaction(request: Request, expected_amount: u64, expected_txid: Vec<Vec<u8>>) {
+    match request {
+        Request::SyncerdBridgeEvent(event) => match event.event {
+            Event::AddressTransaction(address_transaction) => {
+                assert_eq!(address_transaction.amount, expected_amount);
+                assert!(expected_txid.contains(&address_transaction.hash));
+            }
+            _ => panic!("expected address transaction event"),
+        },
+        _ => panic!("expected syncerd bridge event"),
+    }
+}
+
+fn assert_received_height_changed(request: Request, expected_height: u64) {
+    match request {
+        Request::SyncerdBridgeEvent(event) => match event.event {
+            Event::HeightChanged(height_changed) => {
+                assert_eq!(height_changed.height, expected_height);
+            }
+            _ => {
+                panic!("expected height changed event");
+            }
+        },
+        _ => {
+            panic!("expected syncerd bridge event");
+        }
+    }
+}
+
 fn assert_transaction_confirmations(
     request: Request,
     expected_confirmations: i32,
@@ -527,7 +556,7 @@ fn find_coinbase_transaction_amount(txs: Vec<bitcoin::Transaction>) -> u64 {
 }
 
 #[tokio::test]
-async fn functional_monero_syncer_test() {
+async fn monero_syncer_block_height_test() {
     let daemon_client = monero_rpc::RpcClient::new("http://localhost:18081".to_string());
     let daemon = daemon_client.daemon();
     let regtest = daemon.regtest();
@@ -545,8 +574,12 @@ async fn functional_monero_syncer_test() {
         }
     }
 
+    // allow some time for things to happen, like the wallet server catching up
+    let duration = std::time::Duration::from_secs(5);
+    std::thread::sleep(duration);
+
     let address = wallet.get_address(0, None).await.unwrap();
-    let generate = regtest.generate_blocks(100, address.address).await.unwrap();
+    let generate = regtest.generate_blocks(200, address.address).await.unwrap();
     println!("generated: {:?}", generate);
 
     let balance = wallet.get_balance(0, None).await.unwrap();
@@ -569,35 +602,6 @@ async fn functional_monero_syncer_test() {
         .transfer(destination, monero_rpc::TransferPriority::Default, options)
         .await
         .unwrap();
-}
-
-fn assert_address_transaction(request: Request, expected_amount: u64, expected_txid: Vec<Vec<u8>>) {
-    match request {
-        Request::SyncerdBridgeEvent(event) => match event.event {
-            Event::AddressTransaction(address_transaction) => {
-                assert_eq!(address_transaction.amount, expected_amount);
-                assert!(expected_txid.contains(&address_transaction.hash));
-            }
-            _ => panic!("expected address transaction event"),
-        },
-        _ => panic!("expected syncerd bridge event"),
-    }
-}
-
-fn assert_received_height_changed(request: Request, expected_height: u64) {
-    match request {
-        Request::SyncerdBridgeEvent(event) => match event.event {
-            Event::HeightChanged(height_changed) => {
-                assert_eq!(height_changed.height, expected_height);
-            }
-            _ => {
-                panic!("expected height changed event");
-            }
-        },
-        _ => {
-            panic!("expected syncerd bridge event");
-        }
-    }
 }
 
 fn get_request_from_message(message: Vec<Vec<u8>>) -> Request {
