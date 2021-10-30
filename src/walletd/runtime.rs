@@ -1094,6 +1094,7 @@ impl Runtime {
             Request::Tx(Tx::Buy(buy_tx)) => {
                 if let Some(Wallet::Bob(BobState {
                     bob,
+                    local_params,
                     key_manager,
                     remote_params: Some(alice_params),
                     core_arb_setup: Some(_),
@@ -1116,14 +1117,23 @@ impl Runtime {
                     let sk_b = key_manager.get_or_derive_monero_spend_key()?;
                     info!("Full secret monero spending key: {}", sk_a + sk_b);
 
-                    let view_key = *alice_params
+                    let view_key_alice = *alice_params
                         .accordant_shared_keys
                         .clone()
                         .into_iter()
                         .find(|vk| vk.tag() == &SharedKeyId::new(SHARED_VIEW_KEY_ID))
                         .unwrap()
                         .elem();
-                    info!("Full secret monero view key: {}", view_key);
+                    let view_key_bob = *local_params
+                        .accordant_shared_keys
+                        .clone()
+                        .into_iter()
+                        .find(|vk| vk.tag() == &SharedKeyId::new(SHARED_VIEW_KEY_ID))
+                        .unwrap()
+                        .elem();
+                    let view_key = view_key_alice + view_key_bob;
+                    // let view_key_bob = params.
+                    info!("Full aggregated secret monero view key: {}", view_key);
                 }
             }
             Request::Tx(Tx::Refund(refund_tx)) => {
