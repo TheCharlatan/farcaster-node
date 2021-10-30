@@ -75,7 +75,7 @@ use internet2::{
 };
 use lnpbp::chain::Chain;
 use microservices::esb::{self, Handler};
-use monero::{PrivateKey, ViewPair, cryptonote::hash::keccak_256};
+use monero::{cryptonote::hash::keccak_256, PrivateKey, ViewPair};
 use request::{Commit, InitSwap, Params, Reveal, TakeCommit, Tx};
 
 pub fn run(
@@ -303,8 +303,8 @@ pub struct RefundSigA {
     xmr_locked: bool,
     #[display("buy_published({0})")]
     buy_published: bool,
-    // #[display("local_view_share({0})")]
-    // local_params: Params
+    /* #[display("local_view_share({0})")]
+     * local_params: Params */
 }
 
 #[derive(Display, Clone)]
@@ -504,7 +504,22 @@ impl SyncerState {
             .elem()
             .clone();
         match local_params {
-            Some(Params::Alice(AliceParameters { buy , cancel, refund, punish, adaptor, extra_arbitrating_keys, arbitrating_shared_keys, spend, extra_accordant_keys, accordant_shared_keys, destination_address, cancel_timelock, punish_timelock, fee_strategy })) =>  {
+            Some(Params::Alice(AliceParameters {
+                buy,
+                cancel,
+                refund,
+                punish,
+                adaptor,
+                extra_arbitrating_keys,
+                arbitrating_shared_keys,
+                spend,
+                extra_accordant_keys,
+                accordant_shared_keys,
+                destination_address,
+                cancel_timelock,
+                punish_timelock,
+                fee_strategy,
+            })) => {
                 let view_alice = accordant_shared_keys
                     .into_iter()
                     .find(|vk| vk.tag() == &SharedKeyId::new(SHARED_VIEW_KEY_ID))
@@ -513,8 +528,22 @@ impl SyncerState {
                     .clone();
                 info!("Matched Alice");
                 view = view + view_alice
-            },
-            Some(Params::Bob(BobParameters { buy, cancel, refund, adaptor, extra_arbitrating_keys, arbitrating_shared_keys, spend, extra_accordant_keys, accordant_shared_keys, refund_address, cancel_timelock, punish_timelock, fee_strategy })) => {
+            }
+            Some(Params::Bob(BobParameters {
+                buy,
+                cancel,
+                refund,
+                adaptor,
+                extra_arbitrating_keys,
+                arbitrating_shared_keys,
+                spend,
+                extra_accordant_keys,
+                accordant_shared_keys,
+                refund_address,
+                cancel_timelock,
+                punish_timelock,
+                fee_strategy,
+            })) => {
                 let view_bob = accordant_shared_keys
                     .into_iter()
                     .find(|vk| vk.tag() == &SharedKeyId::new(SHARED_VIEW_KEY_ID))
@@ -523,10 +552,11 @@ impl SyncerState {
                     .clone();
                 info!("Matched Bob");
                 view = view + view_bob
-            },
+            }
             None => {}
         }
         info!("XMR view key: {}", view);
+        info!("XMR spend key: {}", spend);
         if swap_role == SwapRole::Alice {
             let viewpair = monero::ViewPair { spend, view };
             let address = (self.monero_address)(&viewpair);
@@ -549,12 +579,16 @@ impl SyncerState {
         self.tasks.watched_addrs.insert(id, tx_label);
 
         // if swap_role == SwapRole::Alice{
-            let viewpair = monero::ViewPair { spend, view };
-            let address = (self.monero_address)(&viewpair);
+        let viewpair = monero::ViewPair { spend, view };
+        let address = (self.monero_address)(&viewpair);
 
-            // self.watch_addr_xmr(spend, accordant_shared_keys, swap_role, tx_label)
-            info!("Watching address {} {}", tx_label.bright_green_bold(), address.addr());
-            // info!("Watching address {}", tx_label.bright_green_bold());
+        // self.watch_addr_xmr(spend, accordant_shared_keys, swap_role, tx_label)
+        info!(
+            "Watching address {} {}",
+            tx_label.bright_green_bold(),
+            address.addr()
+        );
+        // info!("Watching address {}", tx_label.bright_green_bold());
         // };
 
         let watch_addr = WatchAddress {
@@ -1759,11 +1793,10 @@ impl Runtime {
 
             Request::Protocol(Msg::RefundProcedureSignatures(refund_proc_sigs)) => {
                 let next_state = match self.state.clone() {
-                    State::Alice(AliceState::RevealA(Some(local_params), _)) => {
+                    State::Alice(AliceState::RevealA(_, _)) => {
                         Ok(State::Alice(AliceState::RefundSigA(RefundSigA {
                             xmr_locked: false,
                             buy_published: false,
-                            // local_params
                         })))
                     }
                     _ => Err(Error::Farcaster(s!("Wrong state: must be RevealA"))),
