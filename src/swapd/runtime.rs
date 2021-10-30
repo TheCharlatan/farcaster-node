@@ -505,20 +505,8 @@ impl SyncerState {
             .clone();
         match local_params {
             Some(Params::Alice(AliceParameters {
-                buy,
-                cancel,
-                refund,
-                punish,
-                adaptor,
-                extra_arbitrating_keys,
-                arbitrating_shared_keys,
-                spend,
-                extra_accordant_keys,
                 accordant_shared_keys,
-                destination_address,
-                cancel_timelock,
-                punish_timelock,
-                fee_strategy,
+                ..
             })) => {
                 let view_alice = accordant_shared_keys
                     .into_iter()
@@ -530,19 +518,8 @@ impl SyncerState {
                 view = view + view_alice
             }
             Some(Params::Bob(BobParameters {
-                buy,
-                cancel,
-                refund,
-                adaptor,
-                extra_arbitrating_keys,
-                arbitrating_shared_keys,
-                spend,
-                extra_accordant_keys,
                 accordant_shared_keys,
-                refund_address,
-                cancel_timelock,
-                punish_timelock,
-                fee_strategy,
+                ..
             })) => {
                 let view_bob = accordant_shared_keys
                     .into_iter()
@@ -557,9 +534,10 @@ impl SyncerState {
         }
         info!("XMR view key: {}", view);
         info!("XMR spend key: {}", spend);
+        let viewpair = monero::ViewPair { spend, view };
+        let address = (self.monero_address)(&viewpair);
+
         if swap_role == SwapRole::Alice {
-            let viewpair = monero::ViewPair { spend, view };
-            let address = (self.monero_address)(&viewpair);
             info!(
                 "Alice, please send {} to {}",
                 self.monero_amount.to_string().bright_green_bold(),
@@ -578,18 +556,11 @@ impl SyncerState {
         let id = self.tasks.new_taskid();
         self.tasks.watched_addrs.insert(id, tx_label);
 
-        // if swap_role == SwapRole::Alice{
-        let viewpair = monero::ViewPair { spend, view };
-        let address = (self.monero_address)(&viewpair);
-
-        // self.watch_addr_xmr(spend, accordant_shared_keys, swap_role, tx_label)
         info!(
             "Watching address {} {}",
             tx_label.bright_green_bold(),
             address.addr()
         );
-        // info!("Watching address {}", tx_label.bright_green_bold());
-        // };
 
         let watch_addr = WatchAddress {
             id,
