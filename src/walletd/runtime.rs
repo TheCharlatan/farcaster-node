@@ -1115,7 +1115,9 @@ impl Runtime {
                     info!("Extracted alice's monero key from Buy tx: {}", sk_a);
 
                     let sk_b = key_manager.get_or_derive_monero_spend_key()?;
-                    info!("Full secret monero spending key: {}", sk_a + sk_b);
+                    let spend_private = sk_a + sk_b;
+                    let spend = monero::PublicKey::from_private_key(&spend_private);
+                    info!("Full secret monero spending key: {}", spend_private);
 
                     let view_key_alice = *alice_params
                         .accordant_shared_keys
@@ -1131,9 +1133,18 @@ impl Runtime {
                         .find(|vk| vk.tag() == &SharedKeyId::new(SHARED_VIEW_KEY_ID))
                         .unwrap()
                         .elem();
-                    let view_key = view_key_alice + view_key_bob;
+                    let view = view_key_alice + view_key_bob;
                     // let view_key_bob = params.
-                    info!("Full aggregated secret monero view key: {}", view_key);
+                    info!("Full aggregated secret monero view key: {}", view);
+
+                    let viewpair = monero::ViewPair { spend, view };
+                    // let address = (swapd.monero_address)(&viewpair);
+                    let address = monero::Address::from_viewpair(monero::Network::Stagenet, &viewpair);
+
+                    info!(
+                        "Corresponding address: {}",
+                        address.addr()
+                    );
                 }
             }
             Request::Tx(Tx::Refund(refund_tx)) => {
