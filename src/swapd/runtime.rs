@@ -131,6 +131,7 @@ pub fn run(
         blockchain::Network::Testnet => monero::Network::Stagenet,
         blockchain::Network::Local => monero::Network::Mainnet,
     };
+    info!("net: {:?}", net);
     let syncer_state = SyncerState {
         tasks,
         monero_height: 0,
