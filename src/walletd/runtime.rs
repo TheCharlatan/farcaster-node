@@ -7,14 +7,17 @@ use std::{
     str::FromStr,
 };
 
-use crate::rpc::{
-    request::{self, BitcoinAddress, Commit, Keys, Msg, Params, Reveal, Token, Tx},
-    Request, ServiceBus,
-};
 use crate::swapd::get_swap_id;
 use crate::walletd::NodeSecrets;
 use crate::LogStyle;
 use crate::Senders;
+use crate::{
+    rpc::{
+        request::{self, BitcoinAddress, Commit, Keys, Msg, Params, Reveal, Token, Tx},
+        Request, ServiceBus,
+    },
+    syncerd::SweepXmrAddress,
+};
 use crate::{Config, CtlServer, Error, Service, ServiceId};
 use bitcoin::{
     hashes::hex::FromHex,
@@ -1099,6 +1102,7 @@ impl Runtime {
                     remote_params: Some(alice_params),
                     core_arb_setup: Some(_),
                     adaptor_buy: Some(adaptor_buy),
+                    pub_offer,
                     ..
                 })) = self.wallets.get_mut(&get_swap_id(&source)?)
                 {
@@ -1113,11 +1117,10 @@ impl Runtime {
                     let sk_a = monero::PrivateKey::from_slice(sk_a_btc_buf.as_ref())
                         .expect("Valid Monero Private Key");
                     info!("Extracted alice's monero key from Buy tx: {}", sk_a);
-
                     let sk_b = key_manager.get_or_derive_monero_spend_key()?;
-                    let spend_private = sk_a + sk_b;
-                    let spend = monero::PublicKey::from_private_key(&spend_private);
-                    info!("Full secret monero spending key: {}", spend_private);
+                    let spend_key = sk_a + sk_b;
+                    let spend = monero::PublicKey::from_private_key(&spend_key);
+                    info!("Full secret monero spending key: {}", spend_key);
 
                     let view_key_alice = *alice_params
                         .accordant_shared_keys
@@ -1145,6 +1148,19 @@ impl Runtime {
                         "Corresponding address: {}",
                         address.addr()
                     );
+
+                    let address = s!("76KwxdgtWyJQK5a27PpqT973R6s7bZ4cKWTtUG6JEyrbLQy5F4ZwdUqgKpssGQzRxnd99LKWqFjYo92b8ngS7GqD1VZBEEL");
+                    let sweep_keys = SweepXmrAddress {
+                        view_key: view,
+                        spend_key,
+                        address,
+                    };
+                    senders.send_to(
+                        ServiceBus::Ctl,
+                        self.identity(),
+                        source,
+                        Request::SweepXmrAddress(sweep_keys),
+                    )?;
                 }
             }
             Request::Tx(Tx::Refund(refund_tx)) => {
@@ -1170,7 +1186,8 @@ impl Runtime {
                     info!("Extracted alice's monero key from Buy tx: {}", sk_b);
 
                     let sk_c = key_manager.get_or_derive_monero_spend_key()?;
-                    info!("Full secret monero spending key: {}", sk_b + sk_c);
+                    let spend_key = sk_b + sk_c;
+                    info!("Full secret monero spending key: {}", spend_key);
 
                     let view_key = *bob_params
                         .accordant_shared_keys
@@ -1180,6 +1197,18 @@ impl Runtime {
                         .unwrap()
                         .elem();
                     info!("Full secret monero view key: {}", view_key);
+                    let address = s!("73oh6eWaf9MStZuxXqeE4nVx9jP5Y8XBZeLQ9AbAqFMWfGLSxjPdkbigWsb2PYvzyTWN3p2wa1jJn28V3vb4zqA4UoCXJp9");
+                    let sweep_keys = SweepXmrAddress {
+                        view_key,
+                        spend_key,
+                        address,
+                    };
+                    senders.send_to(
+                        ServiceBus::Ctl,
+                        self.identity(),
+                        source,
+                        Request::SweepXmrAddress(sweep_keys),
+                    )?;
                 }
             }
             Request::GetKeys(request::GetKeys(wallet_token, request_id)) => {
