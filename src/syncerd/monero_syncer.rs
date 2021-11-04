@@ -202,6 +202,7 @@ impl MoneroRpc {
             category_selector,
             subaddr_indices: None,
             account_index: None,
+            block_height_filter: None,
         };
 
         let mut transfers = wallet.get_transfers(selector).await?;
@@ -278,11 +279,17 @@ async fn sweep_address(
             unlock_time: 0,
             get_tx_keys: None,
             below_amount: None,
-            do_not_relay: None,
+            do_not_relay: Some(true),
             get_tx_hex: None,
-            get_tx_metadata: None,
+            get_tx_metadata: Some(true),
         };
         let res = wallet.sweep_all(sweep_args).await?;
+        println!("result: {:?}", res);
+
+        for tx_metadata in res.tx_metadata_list.unwrap() {
+            let res_relay = wallet.relay_tx(tx_metadata).await?;
+            println!("res_relay: {:?}", res_relay);
+        }
         let tx_ids: Vec<Vec<u8>> = res
             .tx_hash_list
             .iter()
