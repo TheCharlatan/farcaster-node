@@ -242,7 +242,7 @@ async fn sweep_address(
     {
         Ok(_) => {}
         Err(err) => {
-            debug!(
+            println!(
                 "error opening to be sweeped wallet: {:?}, falling back to generating a new wallet",
                 err,
             );
@@ -266,6 +266,7 @@ async fn sweep_address(
     wallet.refresh(Some(1)).await?;
 
     let balance = wallet.get_balance(0, None).await?;
+    println!("balance: {:?}", balance);
     // only sweep once all the balance is unlocked
     if balance.balance >= balance.unlocked_balance {
         let sweep_args = monero_rpc::SweepAllArgs {
@@ -319,12 +320,12 @@ async fn run_syncerd_task_receiver(
                     match syncerd_task.task {
                         Task::SweepAddress(task) => match task.addendum.clone() {
                             SweepAddressAddendum::Monero(_) => {
-                                info!("sweeping to address: {}", task);
+                                println!("sweeping to address: {}", task);
                                 let mut state_guard = state.lock().await;
                                 state_guard.sweep_address(task, syncerd_task.source);
                             }
                             _ => {
-                                error!("Aborting sweep address task - unable to decode sweep address addendum");
+                                println!("Aborting sweep address task - unable to decode sweep address addendum");
                                 let mut state_guard = state.lock().await;
                                 state_guard.abort(task.id, syncerd_task.source).await;
                             }
@@ -509,7 +510,7 @@ fn sweep_polling(
                             sweep_address_txs = val;
                         }
                         Err(err) => {
-                            trace!("error polling sweep address {:?}, retrying", err);
+                            println!("error polling sweep address {:?}, retrying", err);
                         }
                     }
                     if let Some(txids) = sweep_address_txs {
@@ -670,3 +671,116 @@ impl Synclet for MoneroSyncer {
         });
     }
 }
+
+use internet2::RoutedFrame;
+use internet2::transport::MAX_FRAME_SIZE;
+
+#[test]
+fn test_monero_syncer() {
+    use internet2::ZMQ_CONTEXT;
+    use crate::syncerd::types::{AddressAddendum, SweepAddressAddendum, Task, SweepAddress, SweepXmrAddress};
+    use crate::rpc::Request;
+    use crate::ServiceId;
+    use crate::syncerd::opts::Coin;
+    use farcaster_core::blockchain::Network;
+    use internet2::{CreateUnmarshaller, Unmarshall};
+
+    const SOURCE2: ServiceId = ServiceId::Syncer(Coin::Monero, Network::Local);
+
+    let (tx, rx): (std::sync::mpsc::Sender<SyncerdTask>, std::sync::mpsc::Receiver<SyncerdTask>) = std::sync::mpsc::channel();
+    let tx_event = ZMQ_CONTEXT.socket(zmq::PAIR).unwrap();
+    let rx_event = ZMQ_CONTEXT.socket(zmq::PAIR).unwrap();
+    tx_event.connect("inproc://testmonerobridge").unwrap();
+    rx_event.bind("inproc://testmonerobridge").unwrap();
+    let mut syncer = MoneroSyncer::new();
+    let syncer_servers = SyncerServers {
+        electrum_server: "".to_string(),
+        monero_daemon: "http://localhost:38081".to_string(),
+        monero_rpc_wallet: "http://localhost:18083".to_string(),
+    };
+    syncer.run(
+        rx,
+        tx_event,
+        SOURCE2.clone().into(),
+        syncer_servers,
+        Chain::Testnet3,
+        true,
+    );
+
+   let spend_key = monero::PrivateKey::from_str(
+        "b42db9d48555770c516af56029021faef02be7b1517e1bfcbd900205c80b7d0e",
+    )
+    .unwrap();
+    let view_key = monero::PrivateKey::from_str(
+        "2012cc56561f8651efe78d6e308f503ec25ac82a5049f40a4e4eccca14024c0c",
+    )
+    .unwrap();
+    let keypair = monero::KeyPair {
+        view: view_key,
+        spend: spend_key,
+    };
+    // let to_be_sweeped_address = monero::Address::from_keypair(monero::Network::Mainnet, &keypair);
+    let dest_address = "59fEswCxk6aF4KdxP1iw1XRN9pnMuFoHSUuFLgvkNMvEb1ct3sroVw91VMGWsBVRv3C6wdHeBQFdjJ4tthjcoYTo75oVc7d";
+
+    let task = SyncerdTask {
+        task: Task::SweepAddress(SweepAddress {
+            id: 0,
+            lifetime: 100000000,
+            addendum: SweepAddressAddendum::Monero(SweepXmrAddress {
+                spend_key,
+                view_key,
+                address: dest_address.to_string(),
+            }),
+        }),
+        source: SOURCE2.clone(),
+    };
+    // println!("task: {:?}", task);
+    tx.send(task).unwrap();
+    println!("sent task!");
+
+    println!("waiting for sweep address message");
+    let message = rx_event.recv_multipart(0).unwrap();
+    println!("received sweep success message");
+    let request = get_request_from_message(message);
+    println!("request: {:?}", request);
+}
+
+fn get_request_from_message(message: Vec<Vec<u8>>) -> Request {
+    use internet2::transport::MAX_FRAME_SIZE;
+    use internet2::Decrypt;
+    use internet2::PlainTranscoder;
+    use internet2::RoutedFrame;
+    use internet2::{CreateUnmarshaller, Unmarshall};
+
+    // Receive a Request
+    let unmarshaller = Request::create_unmarshaller();
+    let mut transcoder = PlainTranscoder {};
+    let routed_message = recv_routed(message);
+    let plain_message = transcoder.decrypt(routed_message.msg).unwrap();
+    let request = (&*unmarshaller.unmarshall(&plain_message).unwrap()).clone();
+    request
+}
+
+// as taken from the rust-internet2 crate - for now we only use the message
+// field, but there is value in parsing all for visibiliy and testing routing
+// information
+fn recv_routed(message: std::vec::Vec<std::vec::Vec<u8>>) -> RoutedFrame {
+    let mut multipart = message.into_iter();
+    // Skipping previous hop data since we do not need them
+    let hop = multipart.next().unwrap();
+    let src = multipart.next().unwrap();
+    let dst = multipart.next().unwrap();
+    let msg = multipart.next().unwrap();
+    if multipart.count() > 0 {
+        panic!("multipart message empty");
+    }
+    let len = msg.len();
+    if len > MAX_FRAME_SIZE as usize {
+        panic!(
+            "multipart message frame
+size too big"
+        );
+    }
+    RoutedFrame { hop, src, dst, msg }
+}
+
