@@ -15,7 +15,7 @@
 
 use crate::syncerd::{
     opts::Coin, Abort, HeightChanged, SweepAddress, SweepAddressAddendum, SweepSuccess,
-    SweepXmrAddress, WatchHeight, XmrAddressAddendum,
+    SweepXmrAddress, SyncerBlockHeight, TaskId, WatchHeight, XmrAddressAddendum,
 };
 use std::{
     any::Any,
@@ -130,8 +130,8 @@ pub fn run(
     };
     let syncer_state = SyncerState {
         tasks,
-        monero_height: 0,
-        bitcoin_height: 0,
+        monero_height: SyncerBlockHeight::min_val(),
+        bitcoin_height: SyncerBlockHeight::min_val(),
         confirmation_bound: 50000,
         lock_tx_confs: None,
         cancel_tx_confs: None,
@@ -247,22 +247,22 @@ impl TemporalSafety {
 
 struct SyncerTasks {
     counter: u32,
-    watched_txs: HashMap<u32, TxLabel>,
-    watched_addrs: HashMap<u32, TxLabel>,
-    sweeping_addr: Option<u32>,
+    watched_txs: HashMap<TaskId, TxLabel>,
+    watched_addrs: HashMap<TaskId, TxLabel>,
+    sweeping_addr: Option<TaskId>,
 }
 
 impl SyncerTasks {
-    fn new_taskid(&mut self) -> u32 {
+    fn new_taskid(&mut self) -> TaskId {
         self.counter += 1;
-        self.counter
+        TaskId(self.counter)
     }
 }
 
 struct SyncerState {
     tasks: SyncerTasks,
-    bitcoin_height: u64,
-    monero_height: u64,
+    bitcoin_height: SyncerBlockHeight,
+    monero_height: SyncerBlockHeight,
     confirmation_bound: u32,
     lock_tx_confs: Option<Request>,
     cancel_tx_confs: Option<Request>,
@@ -403,12 +403,12 @@ impl esb::Handler<ServiceBus> for Runtime {
 }
 
 impl SyncerState {
-    fn task_lifetime(&self, coin: Coin) -> u64 {
+    fn task_lifetime(&self, coin: Coin) -> SyncerBlockHeight {
         let height = self.height(coin);
-        if height > 0 {
-            height + 500
+        if height > SyncerBlockHeight::min_val() {
+            height + SyncerBlockHeight(500)
         } else {
-            u64::MAX
+            SyncerBlockHeight::min_val()
         }
     }
     fn bitcoin_syncer(&self) -> ServiceId {
@@ -417,13 +417,13 @@ impl SyncerState {
     fn monero_syncer(&self) -> ServiceId {
         self.monero_syncer.clone()
     }
-    fn height(&self, coin: Coin) -> u64 {
+    fn height(&self, coin: Coin) -> SyncerBlockHeight {
         match coin {
             Coin::Bitcoin => self.bitcoin_height,
             Coin::Monero => self.monero_height,
         }
     }
-    fn handle_height_change(&mut self, new_height: u64, coin: Coin) {
+    fn handle_height_change(&mut self, new_height: SyncerBlockHeight, coin: Coin) {
         let height = match coin {
             Coin::Bitcoin => &mut self.bitcoin_height,
             Coin::Monero => &mut self.monero_height,
@@ -554,7 +554,7 @@ impl SyncerState {
             .values()
             .any(|&x| x == TxLabel::AccLock)
     }
-    fn handle_tx_confs(&self, id: &u32, confirmations: &Option<u32>) {
+    fn handle_tx_confs(&self, id: &TaskId, confirmations: &Option<u32>) {
         if let Some(txlabel) = self.tasks.watched_txs.get(id) {
             match confirmations {
                 Some(0) => {

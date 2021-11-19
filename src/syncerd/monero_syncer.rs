@@ -165,7 +165,7 @@ impl MoneroRpc {
                 warn!("wallet doesn't exist, generating a new wallet: {:?}", err);
                 wallet
                     .generate_from_keys(GenerateFromKeysArgs {
-                        restore_height: Some(address_addendum.from_height),
+                        restore_height: Some(address_addendum.from_height.to_int()),
                         filename: wallet_filename.clone(),
                         address,
                         spendkey: None,
@@ -182,7 +182,9 @@ impl MoneroRpc {
             }
         }
 
-        wallet.refresh(Some(address_addendum.from_height)).await?;
+        wallet
+            .refresh(Some(address_addendum.from_height.to_int()))
+            .await?;
 
         let mut category_selector: HashMap<GetTransfersCategory, bool> = HashMap::new();
         category_selector.insert(GetTransfersCategory::In, true);
@@ -195,7 +197,7 @@ impl MoneroRpc {
             subaddr_indices: None,
             account_index: None,
             block_height_filter: Some(monero_rpc::BlockHeightFilter {
-                min_height: Some(address_addendum.from_height),
+                min_height: Some(address_addendum.from_height.to_int()),
                 max_height: None,
             }),
         };
@@ -463,7 +465,7 @@ fn height_polling(
             if let Some(block_notif) = block_notif {
                 let mut state_guard = state.lock().await;
                 state_guard
-                    .change_height(block_notif.height, block_notif.block_hash)
+                    .change_height(block_notif.height.into(), block_notif.block_hash)
                     .await;
                 let mut transactions = state_guard.transactions.clone();
                 drop(state_guard);

@@ -2,7 +2,7 @@ use crate::farcaster_core::{blockchain::Network, consensus::Decodable};
 use crate::rpc::request::SyncerdBridgeEvent;
 use crate::syncerd::opts::Coin;
 use crate::syncerd::runtime::SyncerdTask;
-use crate::syncerd::TaskTarget;
+use crate::syncerd::{SyncerBlockHeight, TaskId, TaskTarget};
 use crate::Error;
 use crate::ServiceId;
 use bitcoin::{hashes::Hash, Txid};
@@ -38,11 +38,11 @@ impl TaskCounter {
 }
 
 pub struct SyncerState {
-    block_height: u64,
+    block_height: SyncerBlockHeight,
     block_hash: Vec<u8>,
     tasks_sources: HashMap<InternalId, ServiceId>,
     watch_height: HashMap<InternalId, WatchHeight>,
-    lifetimes: HashMap<u64, HashSet<InternalId>>,
+    lifetimes: HashMap<SyncerBlockHeight, HashSet<InternalId>>,
     pub addresses: HashMap<InternalId, AddressTransactions>,
     pub transactions: HashMap<InternalId, WatchedTransaction>,
     pub unseen_transactions: HashSet<InternalId>,
@@ -77,7 +77,7 @@ pub fn create_set<T: std::hash::Hash + Eq>(xs: Vec<T>) -> HashSet<T> {
 impl SyncerState {
     pub fn new(tx_event: TokioSender<SyncerdBridgeEvent>) -> Self {
         Self {
-            block_height: 0,
+            block_height: SyncerBlockHeight::min_val(),
             block_hash: vec![0],
             tasks_sources: HashMap::new(),
             watch_height: HashMap::new(),
@@ -91,7 +91,7 @@ impl SyncerState {
         }
     }
 
-    pub fn block_height(&self) -> u64 {
+    pub fn block_height(&self) -> SyncerBlockHeight {
         self.block_height
     }
 
@@ -101,9 +101,9 @@ impl SyncerState {
             TaskTarget::TaskId(task_id) => Some(task_id),
         };
 
-        let mut aborted_ids: Vec<u32> = vec![];
+        let mut aborted_ids: Vec<TaskId> = vec![];
         // check addresses tasks
-        let ids: Vec<(InternalId, u32)> = self
+        let ids: Vec<(InternalId, TaskId)> = self
             .addresses
             .iter()
             .filter_map(|(id, address_transaction)| {
@@ -131,7 +131,7 @@ impl SyncerState {
         );
 
         // check transactions tasks
-        let ids: Vec<(InternalId, u32)> = self
+        let ids: Vec<(InternalId, TaskId)> = self
             .transactions
             .iter()
             .filter_map(|(id, watched_transaction)| {
@@ -158,7 +158,7 @@ impl SyncerState {
         );
 
         // check height tasks
-        let ids: Vec<(InternalId, u32)> = self
+        let ids: Vec<(InternalId, TaskId)> = self
             .watch_height
             .iter()
             .filter_map(|(id, watch_height)| {
@@ -185,7 +185,7 @@ impl SyncerState {
         );
 
         // check sweep address tasks
-        let ids: Vec<(InternalId, u32)> = self
+        let ids: Vec<(InternalId, TaskId)> = self
             .sweep_addresses
             .iter()
             .filter_map(|(id, sweep_address)| {
@@ -256,7 +256,7 @@ impl SyncerState {
         self.tasks_sources
             .insert(self.task_count.into(), source.clone());
 
-        if self.block_height != 0 {
+        if self.block_height != SyncerBlockHeight::min_val() {
             send_event(
                 &self.tx_event,
                 &mut vec![(
@@ -320,7 +320,7 @@ impl SyncerState {
         self.tasks_sources.insert(self.task_count.into(), source);
     }
 
-    pub async fn change_height(&mut self, height: u64, block: Vec<u8>) {
+    pub async fn change_height(&mut self, height: SyncerBlockHeight, block: Vec<u8>) {
         if self.block_height != height || self.block_hash != block {
             self.block_height = height;
             self.block_hash = block.clone();
@@ -535,7 +535,8 @@ impl SyncerState {
     }
 
     fn drop_lifetimes(&mut self) {
-        let lifetimes: Vec<u64> = Iterator::collect(self.lifetimes.keys().map(|&x| x.to_owned()));
+        let lifetimes: Vec<SyncerBlockHeight> =
+            Iterator::collect(self.lifetimes.keys().map(|&x| x.to_owned()));
         for lifetime in lifetimes {
             if lifetime < self.block_height {
                 warn!("dropping lifetime");
@@ -544,7 +545,7 @@ impl SyncerState {
         }
     }
 
-    fn add_lifetime(&mut self, lifetime: u64, id: InternalId) -> Result<(), Error> {
+    fn add_lifetime(&mut self, lifetime: SyncerBlockHeight, id: InternalId) -> Result<(), Error> {
         if lifetime < self.block_height {
             return Err(Error::Farcaster("task lifetime expired".to_string()));
         }
@@ -559,7 +560,7 @@ impl SyncerState {
         Ok(())
     }
 
-    fn drop_lifetime(&mut self, lifetime: u64) {
+    fn drop_lifetime(&mut self, lifetime: SyncerBlockHeight) {
         if let Some(tasks) = self.lifetimes.remove(&lifetime) {
             for task in &tasks {
                 self.addresses.remove(task);
@@ -650,22 +651,27 @@ async fn syncer_state_transaction() {
     let mut state = SyncerState::new(event_tx.clone());
 
     let transaction_task_one = WatchTransaction {
-        id: 0,
-        lifetime: 1,
+        id: TaskId(0),
+        lifetime: 1.into(),
         hash: vec![0],
         confirmation_bound: 4,
     };
     let transaction_task_two = WatchTransaction {
-        id: 0,
-        lifetime: 3,
+        id: TaskId(0),
+        lifetime: 3.into(),
         hash: vec![1],
         confirmation_bound: 4,
     };
-    let height_task = WatchHeight { id: 0, lifetime: 4 };
+    let height_task = WatchHeight {
+        id: TaskId(0),
+        lifetime: 4.into(),
+    };
     let source1 = ServiceId::Syncer(Coin::Bitcoin, Network::Mainnet);
 
     state.watch_transaction(transaction_task_one.clone(), source1.clone());
-    state.abort(TaskTarget::TaskId(0), source1.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source1.clone())
+        .await;
     assert!(event_rx.try_recv().is_ok());
 
     state.watch_transaction(transaction_task_one.clone(), source1.clone());
@@ -725,14 +731,16 @@ async fn syncer_state_transaction() {
 
     let source2 = ServiceId::Syncer(Coin::Monero, Network::Mainnet);
     state.watch_transaction(transaction_task_two.clone(), source2.clone());
-    state.abort(TaskTarget::TaskId(0), source2.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source2.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 3);
     assert_eq!(state.transactions.len(), 2);
     assert_eq!(state.tasks_sources.len(), 3);
     assert_eq!(state.unseen_transactions.len(), 2);
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(5, vec![0]).await;
+    state.change_height(5.into(), vec![0]).await;
     assert_eq!(state.lifetimes.len(), 0);
     assert_eq!(state.transactions.len(), 0);
     assert_eq!(state.tasks_sources.len(), 0);
@@ -752,18 +760,18 @@ async fn syncer_state_addresses() {
     let address = bitcoin::Address::from_str("32BkaQeAVcd65Vn7pjEziohf5bCiryNQov").unwrap();
     let addendum = AddressAddendum::Bitcoin(BtcAddressAddendum {
         address: Some(address.clone()),
-        from_height: 0,
+        from_height: 0.into(),
         script_pubkey: address.script_pubkey(),
     });
     let address_task = WatchAddress {
-        id: 0,
-        lifetime: 1,
+        id: TaskId(0),
+        lifetime: 1.into(),
         addendum: addendum.clone(),
         include_tx: Boolean::False,
     };
     let address_task_two = WatchAddress {
-        id: 0,
-        lifetime: 1,
+        id: TaskId(0),
+        lifetime: 1.into(),
         addendum: addendum.clone(),
         include_tx: Boolean::False,
     };
@@ -772,7 +780,9 @@ async fn syncer_state_addresses() {
     state
         .watch_address(address_task_two.clone(), source1.clone())
         .unwrap();
-    state.abort(TaskTarget::TaskId(0), source1.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source1.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 0);
     assert_eq!(state.tasks_sources.len(), 0);
     assert_eq!(state.addresses.len(), 0);
@@ -868,20 +878,25 @@ async fn syncer_state_addresses() {
     state
         .watch_address(address_task_two.clone(), source2.clone())
         .unwrap();
-    state.abort(TaskTarget::TaskId(0), source2.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source2.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.addresses.len(), 1);
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(1, vec![0]).await;
-    let height_task = WatchHeight { id: 0, lifetime: 3 };
+    state.change_height(1.into(), vec![0]).await;
+    let height_task = WatchHeight {
+        id: TaskId(0),
+        lifetime: 3.into(),
+    };
     state.watch_height(height_task, source1.clone()).await;
     assert_eq!(state.lifetimes.len(), 2);
     assert_eq!(state.tasks_sources.len(), 2);
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(2, vec![0]).await;
+    state.change_height(2.into(), vec![0]).await;
     state
         .change_address(
             addendum.clone(),
@@ -904,8 +919,8 @@ async fn syncer_state_sweep_addresses() {
     ) = tokio::sync::mpsc::channel(120);
     let mut state = SyncerState::new(event_tx.clone());
     let sweep_task = SweepAddress {
-        id: 0,
-        lifetime: 11,
+        id: TaskId(0),
+        lifetime: 11.into(),
         addendum: SweepAddressAddendum::Monero(SweepXmrAddress {
             view_key: monero::PrivateKey::from_str(
                 "77916d0cd56ed1920aef6ca56d8a41bac915b68e4c46a589e0956e27a7b77404",
@@ -927,7 +942,9 @@ async fn syncer_state_sweep_addresses() {
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.sweep_addresses.len(), 1);
-    state.abort(TaskTarget::TaskId(0), source1.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source1.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 0);
     assert_eq!(state.tasks_sources.len(), 0);
     assert_eq!(state.sweep_addresses.len(), 0);
@@ -952,14 +969,22 @@ async fn syncer_state_height() {
         TokioReceiver<SyncerdBridgeEvent>,
     ) = tokio::sync::mpsc::channel(120);
     let mut state = SyncerState::new(event_tx.clone());
-    let height_task = WatchHeight { id: 0, lifetime: 0 };
-    let another_height_task = WatchHeight { id: 0, lifetime: 3 };
+    let height_task = WatchHeight {
+        id: TaskId(0),
+        lifetime: 0.into(),
+    };
+    let another_height_task = WatchHeight {
+        id: TaskId(0),
+        lifetime: 3.into(),
+    };
     let source1 = ServiceId::Syncer(Coin::Bitcoin, Network::Mainnet);
 
     state
         .watch_height(height_task.clone(), source1.clone())
         .await;
-    state.abort(TaskTarget::TaskId(0), source1.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source1.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 0);
     assert_eq!(state.tasks_sources.len(), 0);
     assert_eq!(state.watch_height.len(), 0);
@@ -976,19 +1001,19 @@ async fn syncer_state_height() {
     assert_eq!(state.watch_height.len(), 2);
     assert!(event_rx.try_recv().is_err());
 
-    state.change_height(1, vec![0]).await;
+    state.change_height(1.into(), vec![0]).await;
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.watch_height.len(), 1);
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(3, vec![0]).await;
+    state.change_height(3.into(), vec![0]).await;
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.watch_height.len(), 1);
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(3, vec![0]).await;
+    state.change_height(3.into(), vec![0]).await;
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.watch_height.len(), 1);
@@ -998,14 +1023,16 @@ async fn syncer_state_height() {
     state
         .watch_height(another_height_task.clone(), source2.clone())
         .await;
-    state.abort(TaskTarget::TaskId(0), source2.clone()).await;
+    state
+        .abort(TaskTarget::TaskId(TaskId(0)), source2.clone())
+        .await;
     assert_eq!(state.lifetimes.len(), 1);
     assert_eq!(state.tasks_sources.len(), 1);
     assert_eq!(state.watch_height.len(), 1);
     assert!(event_rx.try_recv().is_ok());
     assert!(event_rx.try_recv().is_ok());
 
-    state.change_height(4, vec![0]).await;
+    state.change_height(4.into(), vec![0]).await;
     assert_eq!(state.lifetimes.len(), 0);
     assert_eq!(state.tasks_sources.len(), 0);
     assert_eq!(state.watch_height.len(), 0);

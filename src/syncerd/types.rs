@@ -1,7 +1,45 @@
 use monero::consensus::Decodable;
 use monero::consensus::Encodable;
 use std::io;
+use std::ops::Add;
 use strict_encoding::{StrictDecode, StrictEncode};
+
+#[derive(
+    Clone, Copy, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Ord, PartialOrd, Hash,
+)]
+#[display(Debug)]
+pub struct TaskId(pub u32);
+
+#[derive(
+    Clone, Copy, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Ord, PartialOrd, Hash,
+)]
+#[display(Debug)]
+pub struct SyncerBlockHeight(pub u64);
+
+impl From<u64> for SyncerBlockHeight {
+    fn from(int: u64) -> Self {
+        Self(int)
+    }
+}
+
+impl SyncerBlockHeight {
+    pub fn max_val() -> Self {
+        Self(u64::MAX)
+    }
+    pub fn min_val() -> Self {
+        Self(u64::MIN)
+    }
+    pub fn to_int(self) -> u64 {
+        self.0
+    }
+}
+
+impl Add for SyncerBlockHeight {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
@@ -16,7 +54,7 @@ pub struct BtcAddressAddendum {
     /// The address the syncer will watch and query.
     pub address: Option<bitcoin::Address>,
     /// The blockchain height where to start the query (not inclusive).
-    pub from_height: u64,
+    pub from_height: SyncerBlockHeight,
     /// The associated script pubkey used by server like Electrum.
     pub script_pubkey: bitcoin::Script,
 }
@@ -27,7 +65,7 @@ pub struct XmrAddressAddendum {
     pub spend_key: monero::PublicKey,
     pub view_key: monero::PrivateKey,
     /// The blockchain height where to start the query (not inclusive).
-    pub from_height: u64,
+    pub from_height: SyncerBlockHeight,
 }
 
 impl StrictEncode for XmrAddressAddendum {
@@ -46,6 +84,7 @@ impl StrictEncode for XmrAddressAddendum {
         Ok(len
             + self
                 .from_height
+                .0
                 .consensus_encode(&mut e)
                 .map_err(|e| strict_encoding::Error::DataIntegrityError(e.to_string()))?)
     }
@@ -59,7 +98,8 @@ impl StrictDecode for XmrAddressAddendum {
             view_key: monero::PrivateKey::consensus_decode(&mut d)
                 .map_err(|e| strict_encoding::Error::DataIntegrityError(e.to_string()))?,
             from_height: u64::consensus_decode(&mut d)
-                .map_err(|e| strict_encoding::Error::DataIntegrityError(e.to_string()))?,
+                .map_err(|e| strict_encoding::Error::DataIntegrityError(e.to_string()))?
+                .into(),
         })
     }
 }
@@ -67,8 +107,8 @@ impl StrictDecode for XmrAddressAddendum {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct SweepAddress {
-    pub id: u32,
-    pub lifetime: u64,
+    pub id: TaskId,
+    pub lifetime: SyncerBlockHeight,
     pub addendum: SweepAddressAddendum,
 }
 
@@ -136,22 +176,22 @@ pub struct Abort {
 
 #[derive(Clone, Debug, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 pub enum TaskTarget {
-    TaskId(u32),
+    TaskId(TaskId),
     AllTasks,
 }
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct WatchHeight {
-    pub id: u32,
-    pub lifetime: u64,
+    pub id: TaskId,
+    pub lifetime: SyncerBlockHeight,
 }
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct WatchAddress {
-    pub id: u32,
-    pub lifetime: u64,
+    pub id: TaskId,
+    pub lifetime: SyncerBlockHeight,
     pub addendum: AddressAddendum,
     pub include_tx: Boolean,
 }
@@ -175,8 +215,8 @@ impl From<Boolean> for bool {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct WatchTransaction {
-    pub id: u32,
-    pub lifetime: u64,
+    pub id: TaskId,
+    pub lifetime: SyncerBlockHeight,
     pub hash: Vec<u8>,
     pub confirmation_bound: u32,
 }
@@ -184,7 +224,7 @@ pub struct WatchTransaction {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct BroadcastTransaction {
-    pub id: u32,
+    pub id: TaskId,
     pub tx: Vec<u8>,
 }
 
@@ -204,22 +244,22 @@ pub enum Task {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct TaskAborted {
-    pub id: Vec<u32>,
+    pub id: Vec<TaskId>,
     pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct HeightChanged {
-    pub id: u32,
+    pub id: TaskId,
     pub block: Vec<u8>,
-    pub height: u64,
+    pub height: SyncerBlockHeight,
 }
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct AddressTransaction {
-    pub id: u32,
+    pub id: TaskId,
     pub hash: Vec<u8>,
     pub amount: u64,
     pub block: Vec<u8>,
@@ -229,7 +269,7 @@ pub struct AddressTransaction {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct TransactionConfirmations {
-    pub id: u32,
+    pub id: TaskId,
     pub block: Vec<u8>,
     pub confirmations: Option<u32>,
 }
@@ -237,7 +277,7 @@ pub struct TransactionConfirmations {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct TransactionBroadcasted {
-    pub id: u32,
+    pub id: TaskId,
     pub tx: Vec<u8>,
     pub error: Option<String>,
 }
@@ -245,7 +285,7 @@ pub struct TransactionBroadcasted {
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
 pub struct SweepSuccess {
-    pub id: u32,
+    pub id: TaskId,
     pub txids: Vec<Vec<u8>>,
 }
 

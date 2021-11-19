@@ -145,7 +145,7 @@ impl ElectrumRpc {
         let txs = query_addr_history(
             &mut self.client,
             address_addendum.script_pubkey.clone(),
-            address_addendum.from_height,
+            address_addendum.from_height.to_int(),
         )?;
         logging(&txs, &address_addendum);
         let notif = AddressNotif {
@@ -188,7 +188,9 @@ impl ElectrumRpc {
         if self.polling {
             let scripts = Vec::<Script>::from(&*self);
             for (script, (address, _)) in scripts.into_iter().zip(self.addresses.clone()) {
-                if let Ok(txs) = query_addr_history(&mut self.client, script, address.from_height) {
+                if let Ok(txs) =
+                    query_addr_history(&mut self.client, script, address.from_height.to_int())
+                {
                     logging(&txs, &address);
                     let new_notif = AddressNotif {
                         address: address.clone(),
@@ -222,7 +224,7 @@ impl ElectrumRpc {
                         if let Ok(txs) = query_addr_history(
                             &mut self.client,
                             script_pubkey.clone(),
-                            address.from_height,
+                            address.from_height.to_int(),
                         ) {
                             info!("creating AddressNotif");
                             logging(&txs, &address);
@@ -611,7 +613,7 @@ fn height_polling(
 
             let mut state_guard = state.lock().await;
             state_guard
-                .change_height(rpc.height, rpc.block_hash.to_vec())
+                .change_height(rpc.height.into(), rpc.block_hash.to_vec())
                 .await;
             drop(state_guard);
             // inner loop actually polls
@@ -634,7 +636,7 @@ fn height_polling(
                 let mut state_guard = state.lock().await;
                 for block_notif in blocks.drain(..) {
                     state_guard
-                        .change_height(block_notif.height, block_notif.block_hash.to_vec())
+                        .change_height(block_notif.height.into(), block_notif.block_hash.to_vec())
                         .await;
                 }
                 drop(state_guard);
