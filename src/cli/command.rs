@@ -127,7 +127,7 @@ impl Exec for Command {
                 port,
                 overlay,
             } => {
-                if network != Network::Testnet {
+                if network != Network::Testnet && network != Network::Local {
                     eprintln!(
                         "Error: {} not yet supported. Only Testnet currently enabled, for your funds safety",
                         network
