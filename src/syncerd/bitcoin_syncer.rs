@@ -61,7 +61,7 @@ pub trait Synclet {
         tx: zmq::Socket,
         syncer_address: Vec<u8>,
         syncer_servers: SyncerServers,
-        chain: Chain,
+        chain: farcaster_core::blockchain::Network,
         polling: bool,
     );
 }
@@ -690,7 +690,7 @@ impl Synclet for BitcoinSyncer {
         tx: zmq::Socket,
         syncer_address: Vec<u8>,
         syncer_servers: SyncerServers,
-        _chain: Chain,
+        _chain: farcaster_core::blockchain::Network,
         polling: bool,
     ) {
         std::thread::spawn(move || {
