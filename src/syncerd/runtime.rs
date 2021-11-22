@@ -92,7 +92,7 @@ pub fn run(
         tx_event,
         runtime.identity().into(),
         syncer_servers,
-        config.chain.clone(),
+        network,
         polling,
     );
     let mut service = Service::service(config, runtime)?;

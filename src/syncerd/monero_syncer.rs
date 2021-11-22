@@ -593,16 +593,16 @@ impl Synclet for MoneroSyncer {
         tx: zmq::Socket,
         syncer_address: Vec<u8>,
         syncer_servers: SyncerServers,
-        chain: Chain,
+        chain: farcaster_core::blockchain::Network,
         polling: bool,
     ) {
         if !polling {
             error!("monero syncer only supports polling for now - switching to polling=true");
         }
         let network = match chain {
-            Chain::Mainnet | Chain::Regtest(_) => monero::Network::Mainnet,
-            Chain::Testnet3 => monero::Network::Stagenet,
-            Chain::Signet => monero::Network::Testnet,
+            farcaster_core::blockchain::Network::Mainnet => monero::Network::Mainnet,
+            farcaster_core::blockchain::Network::Testnet => monero::Network::Stagenet,
+            farcaster_core::blockchain::Network::Local => monero::Network::Mainnet,
             _ => {
                 error!(
                     "invalid chain type for monero: {}- switching to mainnet",
