@@ -807,7 +807,7 @@ fn create_bitcoin_syncer(
         tx_event,
         SOURCE1.clone().into(),
         syncer_servers,
-        Chain::Regtest(dummy),
+        farcaster_core::blockchain::Network::Local,
         polling,
     );
     (tx, rx_event)
@@ -1528,7 +1528,7 @@ fn create_monero_syncer(socket_name: &str) -> (std::sync::mpsc::Sender<SyncerdTa
         tx_event,
         SOURCE2.clone().into(),
         syncer_servers,
-        Chain::Regtest(dummy),
+        farcaster_core::blockchain::Network::Local,
         true,
     );
     (tx, rx_event)
