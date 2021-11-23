@@ -155,7 +155,9 @@ impl MoneroRpc {
         let password = s!(" ");
 
         let wallet = wallet_mutex.lock().await;
-        trace!("taking check address lock");
+        warn!("taking check address lock");
+        let wallet = wallet_mutex.lock().await;
+        warn!("taking check address lock");
 
         match wallet
             .open_wallet(wallet_filename.clone(), Some(password.clone()))
@@ -181,6 +183,7 @@ impl MoneroRpc {
                 debug!("Watch wallet opened successfully")
             }
         }
+        warn!("check address should be locked");
 
         wallet.refresh(Some(address_addendum.from_height)).await?;
 
@@ -201,8 +204,7 @@ impl MoneroRpc {
         };
 
         let mut transfers = wallet.get_transfers(selector).await?;
-        trace!("releasing check address lock");
-        drop(wallet);
+        // drop(wallet);
 
         let mut address_txs: Vec<AddressTx> = vec![];
         for (_category, mut txs) in transfers.drain() {
@@ -216,6 +218,7 @@ impl MoneroRpc {
             }
         }
 
+        warn!("releasing check address lock");
         Ok(AddressNotif { txs: address_txs })
     }
 }
@@ -233,17 +236,14 @@ async fn sweep_address(
     let wallet_filename = format!("sweep:{}", address);
 
     let wallet = wallet_mutex.lock().await;
-    trace!("taking sweep wallet lock");
+    warn!("taking sweep wallet lock");
 
     match wallet
         .open_wallet(wallet_filename.clone(), Some(password.clone()))
         .await
     {
         Ok(_) => {
-            wallet
-                .open_wallet(wallet_filename.clone(), Some(password.clone()))
-                .await?;
-            debug!("opened sweep wallet");
+            info!("opened sweep wallet");
         }
         Err(err) => {
             warn!(
@@ -296,6 +296,7 @@ async fn sweep_address(
                 hex::decode(hash.to_string()).unwrap()
             })
             .collect();
+        warn!("releasing sweep wallet lock");
 
         return Ok(Some(tx_ids));
     } else {
@@ -304,7 +305,7 @@ async fn sweep_address(
             balance.unlocked_balance, balance.balance
         );
     }
-    trace!("releasing sweep wallet lock");
+    warn!("releasing sweep wallet lock");
     Ok(None)
 }
 
@@ -400,13 +401,15 @@ async fn run_syncerd_task_receiver(
 
 fn address_polling(
     state: Arc<Mutex<SyncerState>>,
-    syncer_servers: SyncerServers,
+    monero_daemon: String,
     network: monero::Network,
     wallet_mutex: Arc<Mutex<monero_rpc::WalletClient>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
-        let mut rpc = MoneroRpc::new(syncer_servers.monero_daemon);
+        error!("started address polling");
+        let mut rpc = MoneroRpc::new(monero_daemon);
         loop {
+            warn!("looping address polling");
             let state_guard = state.lock().await;
             let mut addresses = state_guard.addresses.clone();
             drop(state_guard);
@@ -418,6 +421,7 @@ fn address_polling(
                 // we cannot parallelize polling here, since we have to open and close the
                 // wallet
                 let mut address_transactions = None;
+                warn!("going into check address");
                 match rpc
                     .check_address(address_addendum.clone(), network, Arc::clone(&wallet_mutex))
                     .await
@@ -429,6 +433,7 @@ fn address_polling(
                         error!("error polling addresses: {:?}", err);
                     }
                 }
+                warn!("done with check address");
                 if let Some(address_transactions) = address_transactions {
                     let mut state_guard = state.lock().await;
                     state_guard
@@ -446,10 +451,10 @@ fn address_polling(
 
 fn height_polling(
     state: Arc<Mutex<SyncerState>>,
-    syncer_servers: SyncerServers,
+    monero_daemon: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
-        let mut rpc = MoneroRpc::new(syncer_servers.monero_daemon);
+        let mut rpc = MoneroRpc::new(monero_daemon);
         loop {
             let mut block_notif = None;
             match rpc.check_block().await {
@@ -537,10 +542,10 @@ fn sweep_polling(
 
 fn unseen_transaction_polling(
     state: Arc<Mutex<SyncerState>>,
-    syncer_servers: SyncerServers,
+    monero_daemon: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
-        let mut rpc = MoneroRpc::new(syncer_servers.monero_daemon);
+        let mut rpc = MoneroRpc::new(monero_daemon);
         loop {
             let state_guard = state.lock().await;
             let unseen_transactions = state_guard.unseen_transactions.clone();
@@ -635,7 +640,7 @@ impl Synclet for MoneroSyncer {
                 .unwrap();
             rt.block_on(async {
                 let wallet_mutex = Arc::new(Mutex::new(
-                    monero_rpc::RpcClient::new(syncer_servers.monero_rpc_wallet.clone()).wallet(),
+                    monero_rpc::RpcClient::new(syncer_servers.monero_rpc_wallet).wallet(),
                 ));
                 let (event_tx, event_rx): (
                     TokioSender<SyncerdBridgeEvent>,
@@ -653,16 +658,16 @@ impl Synclet for MoneroSyncer {
 
                 let address_handle = address_polling(
                     Arc::clone(&state),
-                    syncer_servers.clone(),
+                    syncer_servers.monero_daemon.clone(),
                     network,
                     Arc::clone(&wallet_mutex),
                 );
 
                 // transaction polling is done in the same loop
-                let height_handle = height_polling(Arc::clone(&state), syncer_servers.clone());
+                let height_handle = height_polling(Arc::clone(&state), syncer_servers.monero_daemon.clone());
 
                 let unseen_transaction_handle =
-                    unseen_transaction_polling(Arc::clone(&state), syncer_servers.clone());
+                    unseen_transaction_polling(Arc::clone(&state), syncer_servers.monero_daemon);
 
                 let sweep_handle =
                     sweep_polling(Arc::clone(&state), Arc::clone(&wallet_mutex), network);
