@@ -427,6 +427,43 @@ async fn run_syncerd_task_receiver(
             match syncerd_task {
                 Ok(syncerd_task) => {
                     match syncerd_task.task {
+                        Task::GetTransaction(task) => {
+                            trace!("getting tx: {:?}", task.hash.to_hex());
+                            match Client::new(&electrum_server).and_then(|transaction_client| {
+                                transaction_client.transaction_get(&task.hash)
+                            }) {
+                                Ok(tx) => {
+                                    tx_event
+                                        .send(SyncerdBridgeEvent {
+                                            event: Event::TransactionRetrieved(
+                                                TransactionRetrieved {
+                                                    id: task.id,
+                                                    tx,
+                                                    error: None,
+                                                },
+                                            ),
+                                            source: syncerd_task.source,
+                                        })
+                                        .await
+                                        .expect("error sending transaction event");
+                                }
+                                Err(err) => {
+                                    tx_event
+                                        .send(SyncerdBridgeEvent {
+                                            event: Event::TransactionRetrieved(
+                                                TransactionRetrieved {
+                                                    id: task.id,
+                                                    tx: vec![],
+                                                    error: Some(err.to_string()),
+                                                },
+                                            ),
+                                            source: syncerd_task.source,
+                                        })
+                                        .await
+                                        .expect("error sending transaction event");
+                                }
+                            }
+                        }
                         Task::SweepAddress(_) => {
                             error!("sweep address not implemented for bitcoin syncer");
                         }

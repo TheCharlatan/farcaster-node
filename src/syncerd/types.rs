@@ -188,6 +188,13 @@ pub struct BroadcastTransaction {
     pub tx: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
+#[display(Debug)]
+pub struct GetTransaction {
+    pub id: u32,
+    pub hash: Vec<u8>,
+}
+
 /// Tasks created by the daemon and handle by syncers to process a blockchain
 /// and generate [`Event`] back to the syncer.
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
@@ -199,6 +206,7 @@ pub enum Task {
     WatchTransaction(WatchTransaction),
     BroadcastTransaction(BroadcastTransaction),
     SweepAddress(SweepAddress),
+    GetTransaction(GetTransaction),
 }
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
@@ -249,6 +257,14 @@ pub struct SweepSuccess {
     pub txids: Vec<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
+#[display(Debug)]
+pub struct TransactionRetrieved {
+    pub id: u32,
+    pub tx: Vec<u8>,
+    pub error: Option<String>,
+}
+
 /// Events returned by syncers to the daemon to update the blockchain states.
 /// Events are identified with a unique 32-bits integer that match the [`Task`]
 /// id.
@@ -264,4 +280,5 @@ pub enum Event {
     /// Notify the daemon the task has been aborted with success or failure.
     /// Carries the status for the task abortion.
     TaskAborted(TaskAborted),
+    TransactionRetrieved(TransactionRetrieved),
 }
