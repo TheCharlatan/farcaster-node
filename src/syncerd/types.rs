@@ -219,9 +219,11 @@ pub struct HeightChanged {
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[display(Debug)]
-pub struct AddressTransaction {
+pub struct AddressTransaction<
+    T: StrictEncode + StrictDecode + Clone + std::fmt::Debug + Eq + PartialEq,
+> {
     pub id: u32,
-    pub hash: Vec<u8>,
+    pub hash: T,
     pub amount: u64,
     pub block: Vec<u8>,
     pub tx: Vec<u8>,

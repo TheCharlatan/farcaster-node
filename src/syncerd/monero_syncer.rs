@@ -256,6 +256,7 @@ async fn sweep_address(
 
     // failsafe to check if the wallet really supports spending
     wallet.query_key(PrivateKeyType::Spend).await?;
+    wallet.refresh(None).await?;
     let (account, addrs) = (0, None);
     let balance = wallet.get_balance(account, addrs).await?;
     // only sweep once all the balance is unlocked
