@@ -587,11 +587,18 @@ pub enum FundingInfo {
     Monero(MoneroFundingInfo),
 }
 
-#[derive(Clone, Debug, Display, StrictDecode, StrictEncode)]
-#[display("bitcoin_funding_info")]
+#[cfg_attr(feature = "serde", serde_as)]
+#[derive(Clone, PartialEq, Eq, Debug, Display, StrictEncode, StrictDecode)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
+#[display(BitcoinFundingInfo::to_yaml_string)]
 pub struct BitcoinFundingInfo {
     pub swap_id: SwapId,
     pub address: bitcoin::Address,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub amount: bitcoin::Amount,
 }
 
@@ -631,8 +638,14 @@ impl StrictDecode for MoneroFundingInfo {
     }
 }
 
-#[derive(Clone, Debug, Display)]
-#[display("monero_funding_info")]
+#[cfg_attr(feature = "serde", serde_as)]
+#[derive(Clone, PartialEq, Eq, Debug, Display)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
+#[display(MoneroFundingInfo::to_yaml_string)]
 pub struct MoneroFundingInfo {
     pub swap_id: SwapId,
     pub amount: monero::Amount,
@@ -803,6 +816,10 @@ impl ToYamlString for PeerInfo {}
 impl ToYamlString for SwapInfo {}
 #[cfg(feature = "serde")]
 impl ToYamlString for SyncerInfo {}
+#[cfg(feature = "serde")]
+impl ToYamlString for BitcoinFundingInfo {}
+#[cfg(feature = "serde")]
+impl ToYamlString for MoneroFundingInfo {}
 
 #[derive(Wrapper, Clone, PartialEq, Eq, Debug, From, StrictEncode, StrictDecode)]
 #[wrapper(IndexRange)]
