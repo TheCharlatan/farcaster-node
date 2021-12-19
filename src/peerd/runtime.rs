@@ -12,6 +12,8 @@
 // along with this software.
 // If not, see <https://opensource.org/licenses/MIT>.
 
+use crate::opts::TokenString;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, sync::Arc};
 use std::{rc::Rc, thread::spawn};
@@ -42,6 +44,7 @@ pub fn run(
     local_socket: Option<InetSocketAddr>,
     remote_socket: InetSocketAddr,
     connect: bool,
+    token: TokenString,
 ) -> Result<(), Error> {
     debug!("Splitting connection into receiver and sender parts");
     let (receiver, sender) = connection.split();
@@ -68,6 +71,7 @@ pub fn run(
             BridgeHandler,
             ZmqType::Rep,
         )?,
+        token: token.clone(),
     };
     let unmarshaller: Unmarshaller<Msg> = Msg::create_unmarshaller();
     let listener =
@@ -89,6 +93,7 @@ pub fn run(
         messages_sent: 0,
         messages_received: 0,
         awaited_pong: None,
+        token,
     };
     let mut service = Service::service(config, runtime)?;
     service.add_loopback(rx)?;
@@ -128,6 +133,7 @@ impl esb::Handler<ServiceBus> for BridgeHandler {
 pub struct ListenerRuntime {
     identity: ServiceId,
     bridge: esb::Controller<ServiceBus, Request, BridgeHandler>,
+    token: TokenString,
 }
 
 impl ListenerRuntime {
@@ -176,7 +182,7 @@ impl peer::Handler<Msg> for ListenerRuntime {
                     "The remote peer has hung up, notifying that peerd has halted: {}",
                     err
                 );
-                self.send_over_bridge(Arc::new(Msg::PeerdShutdown))?;
+                self.send_over_bridge(Arc::new(Msg::PeerdShutdown(self.token.token.clone())))?;
                 // park this thread, the process exit is supposed to be handled by the parent
                 //  the socket will continue spamming this error until peerd is shutdown, this ensures it is only handled once
                 std::thread::park();
@@ -207,6 +213,7 @@ pub struct Runtime {
     messages_sent: usize,
     messages_received: usize,
     awaited_pong: Option<u16>,
+    token: TokenString,
 }
 
 impl CtlServer for Runtime {}
@@ -387,7 +394,9 @@ impl Runtime {
                 self.awaited_pong = None;
             }
 
-            Request::Protocol(Msg::PeerdShutdown) => {
+            Request::Protocol(Msg::PeerdShutdown(token))
+                if TokenString::from_str(token).unwrap() == self.token =>
+            {
                 warn!("Exiting peerd");
                 // handle further side effects here, e.g. sending a message to farcasterd to cleanup the peer connection, before exiting.
                 std::process::exit(0);

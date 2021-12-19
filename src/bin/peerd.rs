@@ -184,6 +184,7 @@ fn main() {
         local_id.bright_yellow_bold()
     );
 
+    let token = opts.wallet_token.clone();
     let peer_socket = PeerSocket::from(opts);
     debug!("Peer socket parameter interpreted as {}", peer_socket);
 
@@ -263,6 +264,7 @@ fn main() {
         local_socket,
         remote_socket,
         connect,
+        token,
     )
     .expect("Error running peerd runtime");
 

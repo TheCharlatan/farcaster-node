@@ -14,6 +14,7 @@
 
 #![allow(clippy::clone_on_copy)]
 
+use crate::opts::TokenString;
 use crate::syncerd::{
     types::{Event, Task},
     Coin, SweepXmrAddress,
@@ -113,7 +114,7 @@ pub enum Msg {
     PingPeer,
     #[api(type = 34)]
     #[display("error_shutdown")]
-    PeerdShutdown,
+    PeerdShutdown(String),
 }
 
 impl Msg {
@@ -140,7 +141,7 @@ impl Msg {
             Msg::BuyProcedureSignature(protocol_message::BuyProcedureSignature {
                 swap_id, ..
             }) => *swap_id,
-            Msg::Ping(_) | Msg::Pong(_) | Msg::PingPeer | Msg::PeerdShutdown => {
+            Msg::Ping(_) | Msg::Pong(_) | Msg::PingPeer | Msg::PeerdShutdown(_) => {
                 unreachable!("Ping and Pong does not containt swapid")
             }
         }
