@@ -235,22 +235,109 @@ impl ElectrumRpc {
 
     async fn query_transactions(&self, state: Arc<Mutex<SyncerState>>, unseen: bool) {
         let state_guard = state.lock().await;
-        let txids: Vec<Vec<u8>> = if unseen {
+        let txids: Vec<bitcoin::Txid> = if unseen {
             state_guard
                 .unseen_transactions
                 .iter()
-                .map(|task_id| state_guard.transactions[task_id].task.hash.clone())
+                .map(|task_id| {
+                    bitcoin::Txid::from_slice(&state_guard.transactions[task_id].task.hash).unwrap()
+                })
                 .collect()
         } else {
             state_guard
                 .transactions
                 .iter()
-                .map(|(_, watched_tx)| watched_tx.task.hash.clone())
+                .map(|(_, watched_tx)| bitcoin::Txid::from_slice(&watched_tx.task.hash).unwrap())
                 .collect()
         };
         drop(state_guard);
+        match self.client.batch_transaction_get(txids.iter()) {
+            Ok(txs) => {
+                let scripts: Vec<bitcoin::Script> =
+                    txs.iter().map(|tx| tx.output[0].script_pubkey).collect();
+                let history: Vec<electrum_client::GetHistoryRes> =
+                    match self.client.batch_script_get_history(scripts.iter()) {
+                        Ok(history) => history.into_iter().flatten().collect(),
+                        Err(err) => {
+                            debug!(
+                                "error getting script history, treating as not found: {}",
+                                err
+                            );
+                            let mut state_guard = state.lock().await;
+                            for tx in txs.iter() {
+                                state_guard
+                                    .change_transaction(
+                                        tx.txid().to_vec(),
+                                        None,
+                                        Some(0),
+                                        bitcoin::consensus::serialize(&tx),
+                                    )
+                                    .await;
+                            }
+                            drop(state_guard);
+                            vec![]
+                        }
+                    };
+
+                let hash_set: HashMap<bitcoin::Txid, bitcoin::Transaction> =
+                    txs.iter().map(|tx| (tx.txid(), tx.clone())).collect();
+
+                let confirmation_height: Vec<(bitcoin::Txid, Option<usize>)> = history
+                    .iter()
+                    .filter(|history_res| hash_set.get(&history_res.tx_hash).is_some())
+                    .map(|history_res| match history_res.height {
+                        i32::MIN..=0 => (history_res.tx_hash, None),
+                        1.. => (history_res.tx_hash, Some(history_res.height as usize)),
+                    })
+                    .collect();
+                
+                let confirmed_txs: Vec<(bitcoin::Txid, usize)> = confirmation_height.iter().filter_map(|(txid, block_height)| {
+                    if let Some(block_height) = block_height {
+                        Some((txid.clone(), block_height.clone()))
+                    } else {
+                        None
+                    }
+                }).collect();
+
+                let blocks = match self.client.batch_block_header(confirmed_txs.iter().map(|(_, )| {
+
+                })
+
+                let (conf_in_block, blockhash) = match entry.height {
+                    // Transaction unconfirmed (0 or -1)
+                    i32::MIN..=0 => (None, None),
+                    // Transaction confirmed at this height
+                    1.. => {
+                        // SAFETY: safe cast as it strictly greater than 0
+                        let confirm_height = entry.height as usize;
+                        let block = match self.client.block_header(confirm_height) {
+                            Ok(block) => block,
+                            Err(err) => {
+                                debug!(
+                                    "error getting block header, treating as not found: {}",
+                                    err
+                                );
+                                let mut state_guard = state.lock().await;
+                                state_guard
+                                    .change_transaction(
+                                        tx_id.to_vec(),
+                                        None,
+                                        Some(0),
+                                        bitcoin::consensus::serialize(&tx),
+                                    )
+                                    .await;
+                                drop(state_guard);
+                                continue;
+                            }
+                        };
+                        let blockhash = Some(block.block_hash().to_vec());
+                        // SAFETY: safe cast u64 from usize
+                        (Some(confirm_height as u64), blockhash)
+                    }
+                };
+            }
+        }
         for tx_id in txids.iter() {
-            let tx_id = bitcoin::Txid::from_slice(tx_id).unwrap();
             // Get the full transaction
             match self.client.transaction_get(&tx_id) {
                 Ok(tx) => {
