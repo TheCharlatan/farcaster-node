@@ -1245,6 +1245,7 @@ impl Runtime {
                         view_key: view,
                         spend_key: spend,
                         address,
+                        minimum_balance: pub_offer.offer.accordant_amount,
                     };
                     senders.send_to(
                         ServiceBus::Ctl,
@@ -1328,6 +1329,7 @@ impl Runtime {
                         view_key: view,
                         spend_key: spend,
                         address,
+                        minimum_balance: pub_offer.offer.accordant_amount,
                     };
                     senders.send_to(
                         ServiceBus::Ctl,

@@ -253,6 +253,7 @@ async fn sweep_address(
     dest_address: monero::Address,
     view: monero::PrivateKey,
     spend: monero::PrivateKey,
+    minimum_balance: monero::Amount,
     network: &monero::Network,
     wallet_mutex: Arc<Mutex<monero_rpc::WalletClient>>,
     restore_height: Option<u64>,
@@ -298,7 +299,7 @@ async fn sweep_address(
     wallet.refresh(restore_height).await?;
     let balance = wallet.get_balance(account, addrs).await?;
     // only sweep once all the balance is unlocked
-    if balance.unlocked_balance != 0 {
+    if balance.unlocked_balance >= minimum_balance.as_pico() {
         info!(
             "Sweeping address {} with unlocked balance {} into {}",
             address.addr(),
@@ -632,6 +633,7 @@ fn sweep_polling(
                         addendum.address,
                         addendum.view_key,
                         addendum.spend_key,
+                        addendum.minimum_balance,
                         &network,
                         Arc::clone(&wallet),
                         sweep_address_task.from_height,
