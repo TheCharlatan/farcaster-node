@@ -2027,6 +2027,7 @@ impl Runtime {
                         );
                         let txlabel = self.syncer_state.tasks.watched_txs.get(id).unwrap();
                         // saving requests of interest for later replaying latest event
+                        // TODO MAYBE: refactor this block into following TxLabel match as an outer block with inner matching again
                         match &txlabel {
                             TxLabel::Lock => {
                                 self.syncer_state.lock_tx_confs = Some(request.clone());
@@ -2047,6 +2048,7 @@ impl Runtime {
                                     && self.remote_params.is_some()
                                     && !self.syncer_state.acc_lock_watched() =>
                             {
+                                // TODO: implement state management here?
                                 if let (
                                     Some(Params::Alice(alice_params)),
                                     Some(Params::Bob(bob_params)),
@@ -2455,6 +2457,7 @@ impl Runtime {
                 self.state_update(senders, next_state)?;
             }
 
+            // TODO: checkpoint here or in caller of this
             Request::Tx(Tx::Lock(btc_lock)) if self.state.b_core_arb() => {
                 log_tx_received(self.swap_id, TxLabel::Lock);
                 self.broadcast(btc_lock, TxLabel::Lock, senders)?;
