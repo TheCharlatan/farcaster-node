@@ -125,6 +125,9 @@ pub enum ServiceId {
     #[display("walletd")]
     Wallet,
 
+    #[display("checkpointd")]
+    Checkpoint,
+
     #[display("other<{0}>")]
     Other(ClientName),
 }
