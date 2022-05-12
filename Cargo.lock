@@ -934,7 +934,7 @@ checksum = "d9435d864e017c3c6afeac1654189b06cdb491cf2ff73dbf0d73b0f292f42ff8"
 [[package]]
 name = "farcaster_core"
 version = "0.4.4"
-source = "git+https://github.com/Lederstrumpf/farcaster-core?branch=homegrown_serde_cleanup_and_extended_coverage#aeebef27515960887ac00a286a0914ccdb05098f"
+source = "git+https://github.com/Lederstrumpf/farcaster-core?branch=homegrown_serde_cleanup_and_extended_coverage#f14e6287007af90e7b1588b703b0847fca5e8b9b"
 dependencies = [
  "amplify",
  "base58-monero",
