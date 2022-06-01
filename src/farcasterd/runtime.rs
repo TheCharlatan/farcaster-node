@@ -384,7 +384,7 @@ impl Runtime {
             .collect()
     }
 
-    fn _known_swap_id(&self, source: ServiceId) -> Result<SwapId, Error> {
+    fn known_swap_id(&self, source: ServiceId) -> Result<SwapId, Error> {
         let swap_id = get_swap_id(&source)?;
         if self.running_swaps.contains(&swap_id) {
             Ok(swap_id)
@@ -1284,6 +1284,25 @@ impl Runtime {
                     source,
                     Request::String(res),
                 )?;
+            }
+
+            Request::CancelSwap(swap_id) => {
+                if !self.running_swaps.contains(&swap_id) {
+                    let msg = format!("Cannot cancel swap, unknown swap id {}", swap_id);
+                    error!("{}", msg);
+                    endpoints.send_to(
+                        ServiceBus::Ctl,
+                        self.identity(),
+                        source,
+                        Request::Failure(Failure {
+                            code: 1,
+                            info: msg.to_string(),
+                        }),
+                    )?;
+                }
+                // check if we are alice and bob's funding is not locked
+                // check if we are bob, and if so, error, the cancel path triggers automatically
+                // TODO: Offers should time out at some point, making this workflow obsolete
             }
 
             Request::PeerdTerminated => {

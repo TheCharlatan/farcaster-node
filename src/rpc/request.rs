@@ -418,6 +418,10 @@ pub enum Request {
     #[display("list_listens()")]
     ListListens,
 
+    #[api(type = 106)]
+    #[display("cancel_swap()")]
+    CancelSwap(SwapId),
+
     // Can be issued from `cli` to `lnpd`
     #[api(type = 200)]
     #[display("listen({0})")]

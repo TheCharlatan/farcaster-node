@@ -190,6 +190,14 @@ pub enum Command {
         /// The swap id requested.
         swapid: SwapId,
     },
+
+    /// Cancel a running swap.
+    #[display("cancel_swap<{swap_id}>")]
+    CancelSwap {
+        /// The swap id of the to-be canceled swap
+        swap_id: SwapId,
+    },
+
     /// Returns addresses and amounts that require funding for coin
     NeedsFunding { coin: Coin },
 }
