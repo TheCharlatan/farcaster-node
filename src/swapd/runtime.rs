@@ -14,6 +14,7 @@
 // If not, see <https://opensource.org/licenses/MIT>.
 
 use crate::service::Endpoints;
+use crate::swapd::runtime::request::AliceRevealParameters;
 use crate::{
     rpc::request::Outcome,
     rpc::request::{BitcoinFundingInfo, FundingInfo, MoneroFundingInfo},
@@ -1158,13 +1159,20 @@ impl Runtime {
                              Ctl Request::MakeSwap"
                         )
                     }
-                    Msg::Reveal(Reveal::Proof(_)) => {
+                    Msg::Reveal(Reveal::Proof(reveal)) => {
                         // These messages are saved as pending if Bob and then forwarded once the
                         // parameter reveal forward is triggered. If Alice, send immediately.
                         match self.state.swap_role() {
                             SwapRole::Bob => {
                                 let pending_request = PendingRequest {
-                                    request,
+                                    request: Request::AliceRevealParameters(
+                                        AliceRevealParameters {
+                                            trade_role: self.state.trade_role(),
+                                            remote_commit: self.state.remote_commit(),
+                                            remote_proof: self.state.remote_proof(),
+                                            alice_parameters: reveal,
+                                        },
+                                    ),
                                     dest: ServiceId::Wallet,
                                     bus_id: ServiceBus::Msg,
                                 };

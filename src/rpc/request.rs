@@ -471,6 +471,15 @@ pub enum Request {
     #[display("fund_swap({0})")]
     FundSwap(OutPoint),
 
+    // Wallet Requests
+    #[api(type = 600)]
+    #[display("bob_reveal_parameters({0})")]
+    BobRevealParameters(BobRevealParameters),
+
+    #[api(type = 601)]
+    #[display("alice_reaveal_parameters({0})")]
+    AliceRevealParameters(AliceRevealParameters),
+
     // Responses to CLI
     // ----------------
     #[api(type = 1004)]
@@ -713,6 +722,24 @@ pub struct MoneroFundingInfo {
 }
 
 impl rpc_connection::Request for Request {}
+
+#[derive(Clone, Debug, Display, StrictEncode, StrictDecode)]
+#[display("{trade_role}, {remote_commit}, {remote_proof}")]
+pub struct BobRevealParameters {
+    trade_role: TradeRole,
+    remote_commit: CommitBobParameters<BtcXmr>,
+    remote_proof: Proof<BtcXmr>,
+    bob_parameters: RevealBobParameters<BtcXmr>,
+}
+
+#[derive(Clone, Debug, Display, StrictEncode, StrictDecode)]
+#[display("{trade_role}, {remote_commit}, {remote_proof}")]
+pub struct AliceRevealParameters {
+    trade_role: TradeRole,
+    remote_commit: CommitAliceParameters<BtcXmr>,
+    remote_proof: Proof<BtcXmr>,
+    alice_parameters: RevealAliceParameters<BtcXmr>,
+}
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode)]
 #[display("{source}, {event}")]
