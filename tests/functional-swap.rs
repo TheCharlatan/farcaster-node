@@ -1590,7 +1590,7 @@ fn cleanup_processes(mut farcasterds: Vec<process::Child>) {
             [
                 "swapd",
                 "grpcd",
-                "checkpointd",
+                "databased",
                 "walletd",
                 "syncerd",
                 "peerd",
