@@ -23,6 +23,7 @@ pub enum AliceState {
         local_params: Params,
         remote_commit: Commit,
         remote_params: Option<Params>,
+        local_trade_role: TradeRole,
         last_checkpoint_type: Option<SwapCheckpointType>,
     }, // local, remote, remote
     #[display("RefundSigs(xmr_locked({xmr_locked}), buy_pub({buy_published}), cancel_seen({cancel_seen}), refund_seen({refund_seen}), overfunded({overfunded}))")]
@@ -38,9 +39,13 @@ pub enum AliceState {
         local_params: Params,
         required_funding_amount: Option<u64>, // TODO: Should be monero::Amount
         overfunded: bool,
+        local_trade_role: TradeRole,
     },
-    #[display("Finish({0})")]
-    FinishA(Outcome),
+    #[display("Finish(outcome{outcome})")]
+    FinishA {
+        outcome: Outcome,
+        local_trade_role: TradeRole,
+    },
 }
 
 #[derive(Display, Debug, Clone, StrictEncode, StrictDecode)]
@@ -77,16 +82,21 @@ pub enum BobState {
         received_refund_procedure_signatures: bool,
         cancel_seen: bool,
         remote_params: Params,
+        local_trade_role: TradeRole,
         local_params: Params,
         b_address: bitcoin::Address,
     }, // lock (not signed), cancel_seen, remote
     #[display("BuySig")]
     BuySigB {
         buy_tx_seen: bool,
+        local_trade_role: TradeRole,
         last_checkpoint_type: SwapCheckpointType,
     },
-    #[display("Finish({0})")]
-    FinishB(Outcome),
+    #[display("Finish(outcome{outcome})")]
+    FinishB {
+        outcome: Outcome,
+        local_trade_role: TradeRole,
+    },
 }
 
 #[derive(Display, Debug, Clone, StrictEncode, StrictDecode)]
@@ -256,7 +266,13 @@ impl State {
         matches!(self, State::Bob(BobState::BuySigB { .. }))
     }
     pub fn b_outcome_abort(&self) -> bool {
-        matches!(self, State::Bob(BobState::FinishB(Outcome::Abort)))
+        matches!(
+            self,
+            State::Bob(BobState::FinishB {
+                outcome: Outcome::Abort,
+                ..
+            })
+        )
     }
     pub fn remote_commit(&self) -> Option<&Commit> {
         match self {
@@ -383,10 +399,10 @@ impl State {
     pub fn finish(&self) -> bool {
         matches!(
             self,
-            State::Alice(AliceState::FinishA(..)) | State::Bob(BobState::FinishB(..))
+            State::Alice(AliceState::FinishA { .. }) | State::Bob(BobState::FinishB { .. })
         )
     }
-    pub fn trade_role(&self) -> Option<TradeRole> {
+    pub fn trade_role(&self) -> TradeRole {
         match self {
             State::Alice(AliceState::StartA {
                 local_trade_role, ..
@@ -400,10 +416,27 @@ impl State {
             | State::Bob(BobState::CommitB {
                 local_trade_role, ..
             })
+            | State::Alice(AliceState::RevealA {
+                local_trade_role, ..
+            })
             | State::Bob(BobState::RevealB {
                 local_trade_role, ..
-            }) => Some(*local_trade_role),
-            _ => None,
+            })
+            | State::Bob(BobState::CorearbB {
+                local_trade_role, ..
+            })
+            | State::Alice(AliceState::RefundSigA {
+                local_trade_role, ..
+            })
+            | State::Bob(BobState::BuySigB {
+                local_trade_role, ..
+            })
+            | State::Alice(AliceState::FinishA {
+                local_trade_role, ..
+            })
+            | State::Bob(BobState::FinishB {
+                local_trade_role, ..
+            }) => local_trade_role.clone(),
         }
     }
     pub fn sup_start_to_commit(
@@ -460,11 +493,13 @@ impl State {
                 local_params,
                 remote_commit: Some(remote_commit),
                 remote_params,
+                local_trade_role,
                 ..
             }) => State::Alice(AliceState::RevealA {
                 local_params,
                 remote_commit,
                 remote_params,
+                local_trade_role,
                 last_checkpoint_type: None,
             }),
 
@@ -487,6 +522,18 @@ impl State {
             }),
 
             _ => unreachable!("checked state on pattern to be Commit"),
+        }
+    }
+    pub fn sup_finish_state(self, outcome: Outcome) -> Self {
+        match self {
+            State::Alice(..) => State::Alice(AliceState::FinishA {
+                local_trade_role: self.trade_role(),
+                outcome,
+            }),
+            State::Bob(..) => State::Bob(BobState::FinishB {
+                local_trade_role: self.trade_role(),
+                outcome,
+            }),
         }
     }
     pub fn t_sup_remote_commit(&mut self, commit: Commit) -> bool {

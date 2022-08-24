@@ -299,6 +299,7 @@ pub struct CheckpointSwapd {
     pub txids: HashMap<TxLabel, Txid>,
     pub pending_broadcasts: Vec<bitcoin::Transaction>,
     pub pending_requests: HashMap<ServiceId, Vec<PendingRequest>>,
+    pub peer_service: ServiceId,
 }
 
 impl StrictEncode for CheckpointSwapd {
@@ -367,6 +368,7 @@ impl StrictDecode for CheckpointSwapd {
         let xmr_addr_addendum = Option::<XmrAddressAddendum>::strict_decode(&mut d)?;
         let temporal_safety = TemporalSafety::strict_decode(&mut d)?;
         let pending_broadcasts = Vec::<bitcoin::Transaction>::strict_decode(&mut d)?;
+        let peer_service = ServiceId::strict_decode(&mut d)?;
 
         let len = usize::strict_decode(&mut d)?;
         let mut txs = HashMap::<TxLabel, bitcoin::Transaction>::new();
@@ -410,6 +412,7 @@ impl StrictDecode for CheckpointSwapd {
             txids,
             pending_requests,
             pending_broadcasts,
+            peer_service,
         })
     }
 }
@@ -554,7 +557,7 @@ impl Runtime {
             // whether we're Bob or Alice and that we're on a compatible state
             Msg::MakerCommit(remote_commit)
                 if self.state.commit()
-                    && self.state.trade_role() == Some(TradeRole::Taker)
+                    && self.state.trade_role() == TradeRole::Taker
                     && self.state.remote_commit().is_none() =>
             {
                 trace!("received remote commitment");
@@ -705,7 +708,7 @@ impl Runtime {
 
                 // if did not yet reveal, maker only. on the msg flow as
                 // of 2021-07-13 taker reveals first
-                if self.state.commit() && self.state.trade_role() == Some(TradeRole::Maker) {
+                if self.state.commit() && self.state.trade_role() == TradeRole::Maker {
                     if let Some(addr) = self.state.b_address().cloned() {
                         let txlabel = TxLabel::Funding;
                         if !self.syncer_state.is_watched_addr(&txlabel) {
@@ -798,6 +801,7 @@ impl Runtime {
                             pending_requests: self.pending_requests().clone(),
                             pending_broadcasts: self.syncer_state.pending_broadcast_txs(),
                             xmr_addr_addendum: self.syncer_state.xmr_addr_addendum.clone(),
+                            peer_service: self.peer_service.clone(),
                         }),
                     )?;
                 }
@@ -1009,9 +1013,8 @@ impl Runtime {
             }
             Request::FundingUpdated
                 if source == ServiceId::Wallet
-                    && ((self.state.trade_role() == Some(TradeRole::Taker)
-                        && self.state.reveal())
-                        || (self.state.trade_role() == Some(TradeRole::Maker)
+                    && ((self.state.trade_role() == TradeRole::Taker && self.state.reveal())
+                        || (self.state.trade_role() == TradeRole::Maker
                             && self.state.commit()))
                     && self.pending_requests().contains_key(&source)
                     && self
@@ -1259,6 +1262,7 @@ impl Runtime {
                             let next_state = State::Bob(BobState::BuySigB {
                                 buy_tx_seen: false,
                                 last_checkpoint_type: self.state.last_checkpoint_type().unwrap(),
+                                local_trade_role: self.state.trade_role(),
                             });
                             self.state_update(endpoints, next_state)?;
                         }
@@ -1343,13 +1347,13 @@ impl Runtime {
                         let success = if self.state.b_buy_sig() {
                             self.state_update(
                                 endpoints,
-                                State::Bob(BobState::FinishB(Outcome::Buy)),
+                                self.state.clone().sup_finish_state(Outcome::Buy),
                             )?;
                             Some(Outcome::Buy)
                         } else if self.state.a_refund_seen() {
                             self.state_update(
                                 endpoints,
-                                State::Alice(AliceState::FinishA(Outcome::Refund)),
+                                self.state.clone().sup_finish_state(Outcome::Refund),
                             )?;
                             Some(Outcome::Refund)
                         } else {
@@ -1630,6 +1634,7 @@ impl Runtime {
                                             .unwrap(),
                                         required_funding_amount,
                                         overfunded,
+                                        local_trade_role: self.state.trade_role(),
                                     });
                                 } else {
                                     warn!(
@@ -1715,7 +1720,7 @@ impl Runtime {
                                 }
                                 self.state_update(
                                     endpoints,
-                                    State::Alice(AliceState::FinishA(Outcome::Refund)),
+                                    self.state.clone().sup_finish_state(Outcome::Refund),
                                 )?;
                                 let abort_all = Task::Abort(Abort {
                                     task_target: TaskTarget::AllTasks,
@@ -1754,7 +1759,7 @@ impl Runtime {
                                 // wallet + farcaster
                                 self.state_update(
                                     endpoints,
-                                    State::Alice(AliceState::FinishA(Outcome::Buy)),
+                                    self.state.clone().sup_finish_state(Outcome::Buy),
                                 )?;
                                 let abort_all = Task::Abort(Abort {
                                     task_target: TaskTarget::AllTasks,
@@ -1834,7 +1839,7 @@ impl Runtime {
                                 )?;
                                 self.state_update(
                                     endpoints,
-                                    State::Bob(BobState::FinishB(Outcome::Refund)),
+                                    self.state.clone().sup_finish_state(Outcome::Refund),
                                 )?;
                                 let swap_success_req = Request::SwapOutcome(Outcome::Refund);
                                 self.send_ctl(
@@ -1866,18 +1871,13 @@ impl Runtime {
                                     self.syncer_state.bitcoin_syncer(),
                                     Request::SyncerTask(abort_all),
                                 )?;
-                                match self.state.swap_role() {
-                                    SwapRole::Alice => self.state_update(
-                                        endpoints,
-                                        State::Alice(AliceState::FinishA(Outcome::Punish)),
-                                    )?,
-                                    SwapRole::Bob => {
-                                        warn!("{}", "You were punished!".err());
-                                        self.state_update(
-                                            endpoints,
-                                            State::Bob(BobState::FinishB(Outcome::Punish)),
-                                        )?
-                                    }
+
+                                self.state_update(
+                                    endpoints,
+                                    self.state.clone().sup_finish_state(Outcome::Punish),
+                                )?;
+                                if let SwapRole::Bob = self.state.swap_role() {
+                                    warn!("{}", "You were punished!".err());
                                 }
                                 let swap_success_req = Request::SwapOutcome(Outcome::Punish);
                                 self.send_ctl(
@@ -1926,7 +1926,7 @@ impl Runtime {
                     {
                         self.state_update(
                             endpoints,
-                            State::Bob(BobState::FinishB(Outcome::Abort)),
+                            self.state.clone().sup_finish_state(Outcome::Abort),
                         )?;
                         endpoints.send_to(
                             ServiceBus::Ctl,
@@ -2013,6 +2013,7 @@ impl Runtime {
                             pending_requests: self.pending_requests().clone(),
                             pending_broadcasts: self.syncer_state.pending_broadcast_txs(),
                             xmr_addr_addendum: self.syncer_state.xmr_addr_addendum.clone(),
+                            peer_service: self.peer_service.clone(),
                         }),
                     )?;
                 }
@@ -2048,6 +2049,7 @@ impl Runtime {
                     remote_params: self.state.remote_params().unwrap(),
                     b_address: self.state.b_address().cloned().unwrap(),
                     last_checkpoint_type: self.state.last_checkpoint_type().unwrap(),
+                    local_trade_role: self.state.trade_role(),
                 });
                 self.state_update(endpoints, next_state)?;
             }
@@ -2160,6 +2162,7 @@ impl Runtime {
                             pending_requests: self.pending_requests().clone(),
                             pending_broadcasts: self.syncer_state.pending_broadcast_txs(),
                             xmr_addr_addendum: self.syncer_state.xmr_addr_addendum.clone(),
+                            peer_service: self.peer_service.clone(),
                         }),
                     )?;
                 }
@@ -2176,6 +2179,7 @@ impl Runtime {
                     refund_seen: false,
                     remote_params: self.state.remote_params().unwrap(),
                     required_funding_amount: None,
+                    local_trade_role: self.state.trade_role(),
                     overfunded: false,
                 });
                 self.state_update(endpoints, next_state)?;
@@ -2206,6 +2210,7 @@ impl Runtime {
                             pending_requests: self.pending_requests().clone(),
                             pending_broadcasts: self.syncer_state.pending_broadcast_txs(),
                             xmr_addr_addendum: self.syncer_state.xmr_addr_addendum.clone(),
+                            peer_service: self.peer_service.clone(),
                         }),
                     )?;
                 }
@@ -2244,7 +2249,10 @@ impl Runtime {
                     || (self.state.a_refundsig() && !self.state.a_btc_locked()) =>
             {
                 // just cancel the swap, no additional logic required
-                self.state_update(endpoints, State::Alice(AliceState::FinishA(Outcome::Abort)))?;
+                self.state_update(
+                    endpoints,
+                    self.state.clone().sup_finish_state(Outcome::Abort),
+                )?;
                 self.abort_swap(endpoints)?;
                 if let ServiceId::Client(_) = source {
                     self.send_ctl(
@@ -2256,7 +2264,10 @@ impl Runtime {
             }
             Request::AbortSwap if self.state.b_start() => {
                 // just cancel the swap, no additional logic required, since funding was not yet retrieved
-                self.state_update(endpoints, State::Bob(BobState::FinishB(Outcome::Abort)))?;
+                self.state_update(
+                    endpoints,
+                    self.state.clone().sup_finish_state(Outcome::Abort),
+                )?;
                 self.abort_swap(endpoints)?;
                 if let ServiceId::Client(_) = source {
                     self.send_ctl(
@@ -2278,7 +2289,10 @@ impl Runtime {
                     Request::GetSweepBitcoinAddress(self.state.b_address().cloned().unwrap()),
                 )?;
                 // cancel the swap to invalidate its state
-                self.state_update(endpoints, State::Bob(BobState::FinishB(Outcome::Abort)))?;
+                self.state_update(
+                    endpoints,
+                    self.state.clone().sup_finish_state(Outcome::Abort),
+                )?;
                 if let ServiceId::Client(_) = source {
                     self.send_ctl(
                         endpoints,
@@ -2351,12 +2365,26 @@ impl Runtime {
                     pending_requests,
                     pending_broadcasts,
                     xmr_addr_addendum,
+                    peer_service,
                 }) => {
                     info!("{} | Restoring swap", swap_id);
                     self.state = state;
                     self.enquirer = enquirer;
                     self.temporal_safety = temporal_safety;
                     self.pending_requests = pending_requests;
+                    match self.state.trade_role() {
+                        TradeRole::Maker => self.peer_service = peer_service,
+                        TradeRole::Taker => {
+                            if let ServiceId::Peer(addr) = peer_service {
+                                endpoints.send_to(
+                                    ServiceBus::Ctl,
+                                    self.identity(),
+                                    ServiceId::Farcasterd,
+                                    Request::ConnectPeer(addr),
+                                )?;
+                            }
+                        }
+                    }
                     self.txs = txs.clone();
                     trace!("Watch height bitcoin");
                     let watch_height_bitcoin = self.syncer_state.watch_height(Blockchain::Bitcoin);
