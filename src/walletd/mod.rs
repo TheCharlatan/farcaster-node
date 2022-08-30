@@ -14,6 +14,7 @@
 
 #[cfg(feature = "shell")]
 mod opts;
+mod runtime_new;
 pub mod runtime;
 
 #[cfg(feature = "shell")]

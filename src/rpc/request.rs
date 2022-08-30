@@ -19,6 +19,9 @@ use crate::swapd::CheckpointSwapd;
 use crate::syncerd::{Event, SweepBitcoinAddress, SweepMoneroAddress, Task};
 use crate::walletd::runtime::CheckpointWallet;
 use amplify::{ToYamlString, Wrapper};
+use farcaster_core::blockchain;
+use farcaster_core::crypto::dleq::DLEQProof;
+use farcaster_core::role::SwapRole;
 use internet2::{CreateUnmarshaller, Unmarshaller};
 use lazy_static::lazy_static;
 #[cfg(feature = "serde")]
@@ -655,6 +658,27 @@ pub enum Request {
     #[api(type = 1321)]
     #[display("checkpoint_entry({0})")]
     CheckpointEntry(CheckpointEntry),
+
+
+    #[api(type = 2000)]
+    #[display("register_swap")]
+    RegisterSwap(SwapId),
+
+    #[api(type = 2001)]
+    #[display("generate_local_params")]
+    GenerateLocalParams(GenerateLocalParams),
+
+    #[api(type = 2002)]
+    #[display("local_params")]
+    LocalParams(Params),
+
+    #[api(type = 2003)]
+    #[display("get_funding_address")]
+    GetFundingAddress(GetFundingAddress),
+
+    #[api(type = 2004)]
+    #[display("verify_proof")]
+    VerifyProof(VerifyProof),
 }
 
 /// Information about server-side failure returned through RPC API
@@ -760,18 +784,26 @@ impl FromStr for OfferStatusSelector {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, StrictEncode, StrictDecode)]
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize),
-    serde(crate = "serde_crate")
-)]
-pub enum OfferStatus {
-    #[display("Open")]
-    Open,
-    #[display("In Progress")]
-    InProgress,
-    #[display("Ended({0})")]
-    Ended(Outcome),
+#[display("generate_local_params")]
+pub struct GenerateLocalParams {
+    swap_id: SwapId,
+    address: bitcoin::Address,
+    public_offer: PublicOffer,
+    local_swap_role: SwapRole,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Display, StrictEncode, StrictDecode)]
+#[display("get_funding_address")]
+pub struct GetFundingAddress {
+    swap_id: SwapId,
+    network: blockchain::Network,
+}
+
+#[derive(Clone, Debug, Display, StrictEncode, StrictDecode)]
+#[display("verify_proof")]
+pub struct VerifyProof {
+    params: Params,
+    dleq_proof: DLEQProof,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, StrictEncode, StrictDecode)]
