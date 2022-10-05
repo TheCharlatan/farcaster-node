@@ -33,7 +33,7 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3.1.0
 
       - name: Install dependencies
         run: sudo apt-get install -y cmake
@@ -142,7 +142,7 @@ jobs:
           MONERO_DAEMON_ADDRESS: monerod:18082
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3.1.0
 
       - name: Refresh cache and add apt-utils
         run: apt-get update -y && apt-get install -y --no-install-recommends apt-utils
