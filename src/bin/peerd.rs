@@ -96,6 +96,7 @@ extern crate amplify_derive;
 use clap::Parser;
 use internet2::addr::InetSocketAddr;
 use nix::unistd::{fork, ForkResult};
+use socks::Socks5Stream;
 use std::convert::TryFrom;
 use std::net::TcpListener;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -105,7 +106,7 @@ use farcaster_node::peerd::{self, Opts};
 use farcaster_node::LogStyle;
 use farcaster_node::ServiceConfig;
 use internet2::addr::NodeAddr;
-use internet2::session;
+use internet2::session::{self, BrontozaurSession};
 use microservices::peer::PeerConnection;
 
 /// Chooses type of service runtime (see `--listen` and `--connect` option
@@ -224,9 +225,14 @@ fn main() {
             forked_from_listener = false;
             remote_node_addr = Some(remote_node);
 
-            debug!("Connecting to {}", &remote_node.addr());
-            PeerConnection::connect_brontozaur(local_node, remote_node)
-                .expect("Unable to connect to the remote peer")
+            let socks_stream = Socks5Stream::connect("lmao", "lmao").unwrap();
+            let stream = socks_stream.into_inner();
+            let session = BrontozaurSession::with(stream, local_node.private_key(), remote_node.addr).unwrap();
+            PeerConnection::with(session)
+
+            // debug!("Connecting to {}", &remote_node.addr());
+            // PeerConnection::connect_brontozaur(local_node, remote_node)
+                // .expect("Unable to connect to the remote peer")
         }
     };
 

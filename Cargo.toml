@@ -82,6 +82,7 @@ paste = "1.0"
 prost = "0.10.3"
 regex = { version = "1.5", optional = true }
 rustc-hex = "2.1.0"
+socks = "0.3.4"
 # we rename the crate below because there is already a feature called `serde`,
 # so it would conflict with the implicit feature that would be added by adding
 # the `serde` crate;
