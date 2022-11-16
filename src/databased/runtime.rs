@@ -1,5 +1,5 @@
 use crate::{
-    bus::{BitcoinSecretKeyInfo, MoneroSecretKeyInfo},
+    bus::{ctl::FundingInfo, BitcoinSecretKeyInfo, MoneroSecretKeyInfo},
     walletd::state::{AliceState, BobState, Wallet},
 };
 use farcaster_core::blockchain::Blockchain;
@@ -432,6 +432,7 @@ const LMDB_CHECKPOINT_INFOS: &str = "checkpoint_infos";
 const LMDB_BITCOIN_ADDRESSES: &str = "bitcoin_addresses";
 const LMDB_MONERO_ADDRESSES: &str = "monero_addresses";
 const LMDB_OFFER_HISTORY: &str = "offer_history";
+const LMDB_FUNDING_INFOS: &str = "funding_infos";
 
 impl Database {
     fn new(path: PathBuf) -> Result<Database, lmdb::Error> {
@@ -444,7 +445,27 @@ impl Database {
         env.create_db(Some(LMDB_BITCOIN_ADDRESSES), lmdb::DatabaseFlags::empty())?;
         env.create_db(Some(LMDB_OFFER_HISTORY), lmdb::DatabaseFlags::empty())?;
         env.create_db(Some(LMDB_MONERO_ADDRESSES), lmdb::DatabaseFlags::empty())?;
+        env.create_db(Some(LMDB_FUNDING_INFOS), lmdb::DatabaseFlags::empty())?;
         Ok(Database(env))
+    }
+
+    fn _set_funding_info(
+        &mut self,
+        funding_info: &FundingInfo,
+        swap_id: &SwapId,
+    ) -> Result<(), Error> {
+        let db = self.0.open_db(Some(LMDB_FUNDING_INFOS))?;
+        let mut tx = self.0.begin_rw_txn()?;
+        let mut key = vec![];
+        funding_info.strict_encode(&mut key)?;
+        if tx.get(db, &key).is_ok() {
+            tx.del(db, &key, None)?;
+        }
+        let mut val = vec![];
+        swap_id.strict_encode(&mut val)?;
+        tx.put(db, &key, &val, lmdb::WriteFlags::empty())?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn set_offer_status(&mut self, offer: &PublicOffer, status: &OfferStatus) -> Result<(), Error> {
