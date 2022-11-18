@@ -903,6 +903,18 @@ impl Runtime {
                     }
                 })
                 .map(|pos| self.trade_state_machines.remove(pos))),
+            (BusMsg::Ctl(CtlMsg::ConnectSuccess), ServiceId::Peer(addr))
+            | (BusMsg::Ctl(CtlMsg::ConnectFailed), ServiceId::Peer(addr)) => Ok(self
+                .trade_state_machines
+                .iter()
+                .position(|tsm| {
+                    if let Some(ServiceId::Peer(tsm_addr)) = tsm.awaiting_connect_from() {
+                        addr == tsm_addr
+                    } else {
+                        false
+                    }
+                })
+                .map(|pos| self.trade_state_machines.remove(pos))),
             (BusMsg::Ctl(CtlMsg::PeerdUnreachable(..)), ServiceId::Swap(swap_id))
             | (BusMsg::Ctl(CtlMsg::FundingInfo(..)), ServiceId::Swap(swap_id))
             | (BusMsg::Ctl(CtlMsg::FundingCanceled(..)), ServiceId::Swap(swap_id))
@@ -1039,7 +1051,7 @@ impl Runtime {
         Ok(node_id)
     }
 
-    pub fn connect_peer(&mut self, node_addr: &NodeAddr) -> Result<ServiceId, Error> {
+    pub fn connect_peer(&mut self, node_addr: &NodeAddr) -> Result<(bool, ServiceId), Error> {
         self.services_ready()?;
         let (peer_secret_key, _) = self.peer_keys_ready()?;
         if let Some(spawning_peer) = self.spawning_services.iter().find(|service| {
@@ -1053,7 +1065,7 @@ impl Runtime {
                 "Already spawning a connection with remote peer {}, through a spawned connection {}, but have not received Hello from it yet.",
                 node_addr.id, spawning_peer
             );
-            return Ok(spawning_peer.clone());
+            return Ok((false, spawning_peer.clone()));
         };
         if let Some(existing_peer) = self.registered_services.iter().find(|service| {
             if let ServiceId::Peer(registered_node_addr) = service {
@@ -1066,7 +1078,7 @@ impl Runtime {
                 "Already connected to remote peer {} through a spawned connection {}",
                 node_addr.id, existing_peer
             );
-            return Ok(existing_peer.clone());
+            return Ok((true, existing_peer.clone()));
         }
 
         debug!("{} to remote peer {}", "Connecting", node_addr);
@@ -1084,9 +1096,6 @@ impl Runtime {
             ],
         );
 
-        // in case it can't connect wait for it to crash
-        std::thread::sleep(Duration::from_secs_f32(0.1));
-
         // status is Some if peerd returns because it crashed
         let (child, status) = child.and_then(|mut c| c.try_wait().map(|s| (c, s)))?;
 
@@ -1099,7 +1108,7 @@ impl Runtime {
         self.spawning_services.insert(ServiceId::Peer(*node_addr));
         debug!("Awaiting for peerd to connect...");
 
-        Ok(ServiceId::Peer(*node_addr))
+        Ok((false, ServiceId::Peer(*node_addr)))
     }
 
     /// Notify(forward to) the subscribed clients still online with the given request

@@ -27,8 +27,8 @@ use std::str::FromStr;
 /// ```ignore
 /// StartRestore    StartTaker  StartMaker
 ///       |             |            |
-///       |             |            V
-///       |             |        MakeOffer
+///       |             V            V
+///       |       TakerConnect   MakeOffer
 ///       |             |            |
 ///       |             V            V
 ///       |         TakeOffer   TakerCommit
@@ -53,8 +53,9 @@ pub enum TradeStateMachine {
     StartMaker,
 
     /// StartTaker state - transitions to TakeOffer on cli request or None on
-    /// failure. Transition to TakeOffer triggers a connect peerd launch (if
-    /// required), sends TakeOffer to walletd, sends TookOffer back to cli
+    /// failure, or TakerConnect if not yet connected. Transition to TakeOffer
+    /// triggers a connect peerd launch (if required). If connected, sends
+    /// TakeOffer to walletd, sends TookOffer back to cli.
     #[display("Start Taker")]
     StartTaker,
 
@@ -63,6 +64,13 @@ pub enum TradeStateMachine {
     /// syncers, and peerd connect if we are the taker - sends reply to cli.
     #[display("Start Restore")]
     StartRestore,
+
+    /// TakerConnect state - transitions to TakeOffer once ConnectSuccess is
+    /// received from peerd or None if ConnectFailed is received. On
+    /// ConnectSuccess sends TakeOffer to walletd and TookOffer back to cli. On
+    /// Connect Failed sends Failure back to cli.
+    #[display("Taker Connect")]
+    TakerConnect(TakerConnect),
 
     /// MakeOffer state - transitions to TakerCommit once TakerCommit is
     /// received from a counterpary or None if RevokeOffer is received from the
@@ -113,6 +121,14 @@ pub struct TakerCommit {
     public_offer: PublicOffer,
 }
 
+pub struct TakerConnect {
+    public_offer: PublicOffer,
+    arb_addr: bitcoin::Address,
+    acc_addr: monero::Address,
+    peerd: ServiceId,
+    source: ServiceId,
+}
+
 pub struct TakeOffer {
     public_offer: PublicOffer,
     arb_addr: bitcoin::Address,
@@ -160,10 +176,15 @@ impl StateMachine<Runtime, Error> for TradeStateMachine {
             event.request
         );
         match self {
-            TradeStateMachine::StartTaker => attempt_transition_to_take_offer(event, runtime),
+            TradeStateMachine::StartTaker => {
+                attempt_transition_to_taker_connect_or_take_offer(event, runtime)
+            }
             TradeStateMachine::StartMaker => attempt_transition_to_make_offer(event, runtime),
             TradeStateMachine::StartRestore => {
                 attempt_transition_to_restoring_swapd(event, runtime)
+            }
+            TradeStateMachine::TakerConnect(taker_connect) => {
+                attempt_transition_to_take_offer(event, runtime, taker_connect)
             }
             TradeStateMachine::MakeOffer(make_offer) => {
                 attempt_transition_to_taker_committed(event, runtime, make_offer)
@@ -218,6 +239,9 @@ impl TradeStateMachine {
                 Some(public_offer.clone())
             }
             TradeStateMachine::TakerCommit(TakerCommit { public_offer, .. }) => {
+                Some(public_offer.clone())
+            }
+            TradeStateMachine::TakerConnect(TakerConnect { public_offer, .. }) => {
                 Some(public_offer.clone())
             }
             TradeStateMachine::SwapdLaunched(SwapdLaunched { public_offer, .. }) => {
@@ -276,6 +300,14 @@ impl TradeStateMachine {
             TradeStateMachine::TakeOffer(TakeOffer { peerd, .. }) => Some(peerd.clone()),
             TradeStateMachine::TakerCommit(TakerCommit { peerd, .. }) => Some(peerd.clone()),
             TradeStateMachine::SwapdLaunched(SwapdLaunched { peerd, .. }) => Some(peerd.clone()),
+            TradeStateMachine::SwapdRunning(SwapdRunning { peerd, .. }) => peerd.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn awaiting_connect_from(&self) -> Option<ServiceId> {
+        match self {
+            TradeStateMachine::TakerConnect(taker_connect) => Some(taker_connect.peerd.clone()),
             TradeStateMachine::SwapdRunning(SwapdRunning { peerd, .. }) => peerd.clone(),
             _ => None,
         }
@@ -368,7 +400,7 @@ fn attempt_transition_to_make_offer(
     }
 }
 
-fn attempt_transition_to_take_offer(
+fn attempt_transition_to_taker_connect_or_take_offer(
     mut event: Event,
     runtime: &mut Runtime,
 ) -> Result<Option<TradeStateMachine>, Error> {
@@ -403,33 +435,42 @@ fn attempt_transition_to_take_offer(
                     }))?;
                     Ok(None)
                 }
-                Ok(peer_service_id) => {
+                Ok((connected, peer_service_id)) => {
                     let offer_registered = "Public offer registered".to_string();
                     info!(
                         "{}: {:#}",
                         offer_registered.bright_green_bold(),
                         &public_offer.id().bright_yellow_bold()
                     );
-
-                    event.send_ctl_service(
-                        ServiceId::Wallet,
-                        CtlMsg::TakeOffer(PubOffer {
-                            public_offer: public_offer.clone(),
-                            external_address: external_address.clone(),
-                            internal_address,
-                        }),
-                    )?;
-                    event.complete_client_info(InfoMsg::TookOffer(TookOffer {
-                        offerid: public_offer.id(),
-                        message: offer_registered,
-                    }))?;
-                    runtime.public_offers.insert(public_offer.clone());
-                    Ok(Some(TradeStateMachine::TakeOffer(TakeOffer {
-                        public_offer,
-                        arb_addr: external_address,
-                        acc_addr: internal_address,
-                        peerd: peer_service_id,
-                    })))
+                    if connected {
+                        event.send_ctl_service(
+                            ServiceId::Wallet,
+                            CtlMsg::TakeOffer(PubOffer {
+                                public_offer: public_offer.clone(),
+                                external_address: external_address.clone(),
+                                internal_address,
+                            }),
+                        )?;
+                        event.complete_client_info(InfoMsg::TookOffer(TookOffer {
+                            offerid: public_offer.id(),
+                            message: offer_registered,
+                        }))?;
+                        runtime.public_offers.insert(public_offer.clone());
+                        Ok(Some(TradeStateMachine::TakeOffer(TakeOffer {
+                            public_offer,
+                            arb_addr: external_address,
+                            acc_addr: internal_address,
+                            peerd: peer_service_id,
+                        })))
+                    } else {
+                        Ok(Some(TradeStateMachine::TakerConnect(TakerConnect {
+                            public_offer,
+                            arb_addr: external_address,
+                            acc_addr: internal_address,
+                            peerd: peer_service_id,
+                            source: event.source,
+                        })))
+                    }
                 }
             }
         }
@@ -649,6 +690,83 @@ fn attempt_transition_from_taker_commit_to_swapd_launched(
             Ok(Some(TradeStateMachine::TakerCommit(TakerCommit {
                 peerd,
                 public_offer,
+            })))
+        }
+    }
+}
+
+fn attempt_transition_to_take_offer(
+    mut event: Event,
+    runtime: &mut Runtime,
+    taker_connect: TakerConnect,
+) -> Result<Option<TradeStateMachine>, Error> {
+    let TakerConnect {
+        public_offer,
+        arb_addr,
+        acc_addr,
+        peerd,
+        source,
+    } = taker_connect;
+    match event.request {
+        BusMsg::Ctl(CtlMsg::ConnectSuccess) => {
+            let offer_registered = "Public offer registered".to_string();
+            info!(
+                "{}: {:#}",
+                offer_registered.bright_green_bold(),
+                &public_offer.id().bright_yellow_bold()
+            );
+            event.send_ctl_service(
+                ServiceId::Wallet,
+                CtlMsg::TakeOffer(PubOffer {
+                    public_offer: public_offer.clone(),
+                    external_address: arb_addr.clone(),
+                    internal_address: acc_addr.clone(),
+                }),
+            )?;
+            event.send_client_info(
+                source,
+                InfoMsg::TookOffer(TookOffer {
+                    offerid: public_offer.id(),
+                    message: offer_registered,
+                }),
+            )?;
+            runtime.public_offers.insert(public_offer.clone());
+            Ok(Some(TradeStateMachine::TakeOffer(TakeOffer {
+                public_offer,
+                arb_addr,
+                acc_addr,
+                peerd,
+            })))
+        }
+        BusMsg::Ctl(CtlMsg::ConnectFailed) => {
+            event.send_client_ctl(
+                source,
+                CtlMsg::Failure(Failure {
+                    info: format!("Could not connect to remote peer {}.", peerd),
+                    code: FailureCode::Unknown,
+                }),
+            )?;
+            Ok(None)
+        }
+        req => {
+            if let BusMsg::Ctl(CtlMsg::Hello) = req {
+                trace!(
+                    "BusMsg {} from {} invalid for state Take Offer - expected LaunchSwap request.",
+                    req,
+                    event.source
+                );
+            } else {
+                warn!(
+                    "BusMsg {} from {} invalid for state Take Offer - expected LaunchSwap request.",
+                    req, event.source
+                );
+            }
+            Ok(Some(TradeStateMachine::TakerConnect(TakerConnect {
+                public_offer,
+                arb_addr,
+                acc_addr,
+                peerd,
+                source,
             })))
         }
     }
@@ -1176,9 +1294,11 @@ fn attempt_transition_to_end(
                             info: err.to_string(),
                         }))?;
                     }
-                    Ok(peerd) => {
+                    Ok((connected, peerd)) => {
                         new_peerd = Some(peerd);
-                        event.complete_client_ctl(CtlMsg::ConnectSuccess)?;
+                        if connected {
+                            event.complete_client_ctl(CtlMsg::ConnectSuccess)?;
+                        }
                     }
                 }
             }
@@ -1188,7 +1308,38 @@ fn attempt_transition_to_end(
                 swap_id,
                 arbitrating_syncer,
                 accordant_syncer,
-                funding_info: None,
+                funding_info,
+                auto_funded,
+            })))
+        }
+
+        (BusMsg::Ctl(CtlMsg::ConnectSuccess), source) if Some(source.clone()) == peerd => {
+            // Fixme, we need to forward this to the client
+            event.complete_client_ctl(CtlMsg::ConnectSuccess)?;
+            Ok(Some(TradeStateMachine::SwapdRunning(SwapdRunning {
+                peerd: Some(source),
+                public_offer,
+                swap_id,
+                arbitrating_syncer,
+                accordant_syncer,
+                funding_info,
+                auto_funded,
+            })))
+        }
+
+        (BusMsg::Ctl(CtlMsg::ConnectFailed), source) if Some(source.clone()) == peerd => {
+            // Fixme, we need to forward this to the client
+            event.complete_client_ctl(CtlMsg::Failure(Failure {
+                code: FailureCode::Unknown,
+                info: format!("Failed to connect to remote peer: {}", source),
+            }))?;
+            Ok(Some(TradeStateMachine::SwapdRunning(SwapdRunning {
+                peerd: Some(source),
+                public_offer,
+                swap_id,
+                arbitrating_syncer,
+                accordant_syncer,
+                funding_info,
                 auto_funded,
             })))
         }
