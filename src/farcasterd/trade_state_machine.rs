@@ -949,7 +949,11 @@ fn attempt_transition_from_swapd_launched_to_swapd_running(
         }
         (BusMsg::Ctl(CtlMsg::Hello), ServiceId::Peer(..)) => {}
         _ => {
-            trace!("{} | BusMsg {} invalid for state swapd launched", swap_id, event.request);
+            trace!(
+                "{} | BusMsg {} invalid for state swapd launched",
+                swap_id,
+                event.request
+            );
         }
     }
     let peerd_up = runtime.registered_services.contains(&peerd);
