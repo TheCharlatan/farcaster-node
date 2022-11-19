@@ -52,7 +52,7 @@ pub fn start_connect_peer_listener_runtime(
     debug!("Conected to remote peer: {}", remote_node_addr);
 
     debug!("Splitting connection into receiver and sender parts");
-    let (peer_receiver, mut peer_sender) = connection.split();
+    let (mut peer_receiver, mut peer_sender) = connection.split();
 
     // this is hella hacky, but it serves the purpose of keeping peerd's service
     // id constant across reconnects: <REMOTE_NODE_ID>:<REMOTE_ADDR> for taker,
@@ -64,6 +64,17 @@ pub fn start_connect_peer_listener_runtime(
         "sent message with local node id {} to the maker",
         local_node.node_id()
     );
+    let unmarshaller: Unmarshaller<PeerMsg> = PeerMsg::create_unmarshaller();
+    let msg: &PeerMsg = &*peer_receiver
+        .recv_message(&unmarshaller)?;
+    match msg {
+        PeerMsg::Pong(id) => {
+            debug!("Received the following pong from the maker {:?}", id);
+        }
+        _ => {
+            return Err(Error::Peer(presentation::Error::UnknownDataType));
+        }
+    };
 
     let internal_identity = ServiceId::Peer(remote_node_addr);
 
@@ -155,7 +166,7 @@ pub fn run_from_listener(
     local_node: LocalNode,
 ) -> Result<(), Error> {
     debug!("Splitting connection into receiver and sender parts");
-    let (mut peer_receiver, peer_sender) = connection.split();
+    let (mut peer_receiver, mut peer_sender) = connection.split();
 
     // this is hella hacky, but it serves the purpose of keeping peerd's service
     // id constant across reconnects: <REMOTE_NODE_ID>:<REMOTE_ADDR> for taker,
@@ -173,6 +184,7 @@ pub fn run_from_listener(
         }
         _ => None,
     };
+    peer_sender.send_message(PeerMsg::Pong(vec![0])).expect("Failed to send handshake pong");
     let internal_identity = ServiceId::Peer(NodeAddr {
         id: *id.expect("remote id should always be some in maker's case"),
         addr: local_socket.expect("Checked for listener"),
