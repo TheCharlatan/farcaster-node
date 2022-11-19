@@ -322,7 +322,20 @@ impl TradeStateMachine {
                     None
                 }
             }
-            TradeStateMachine::SwapdRunning(SwapdRunning { peerd, .. }) => peerd.clone(),
+            TradeStateMachine::SwapdRunning(SwapdRunning {
+                peerd,
+                public_offer,
+                ..
+            }) => {
+                // Peerd is none, implies a connect event is possible. A connect
+                // is only possible to a listening peer, its address thus has to
+                // match the address of the offer.
+                if peerd.is_none() {
+                    Some(ServiceId::Peer(node_addr_from_public_offer(public_offer)))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -1382,7 +1395,10 @@ fn attempt_transition_to_end(
             })))
         }
 
-        (BusMsg::Ctl(CtlMsg::ConnectSuccess), source) if Some(source.clone()) == peerd => {
+        // A ConnectSuccess event can only come from a peerd connecting to a listener (maker)
+        (BusMsg::Ctl(CtlMsg::ConnectSuccess), source)
+            if source.clone() == ServiceId::Peer(node_addr_from_public_offer(&public_offer)) =>
+        {
             for client in clients_awaiting_connect_result.drain(..) {
                 event.send_client_ctl(client, CtlMsg::ConnectSuccess)?;
             }
@@ -1398,7 +1414,10 @@ fn attempt_transition_to_end(
             })))
         }
 
-        (BusMsg::Ctl(CtlMsg::ConnectFailed), source) if Some(source.clone()) == peerd => {
+        // A ConnectFailed event can only come from a peerd connecting to a listener (maker)
+        (BusMsg::Ctl(CtlMsg::ConnectFailed), source)
+            if source.clone() == ServiceId::Peer(node_addr_from_public_offer(&public_offer)) =>
+        {
             for client in clients_awaiting_connect_result.drain(..) {
                 event.send_client_ctl(
                     client,
