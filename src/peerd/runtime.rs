@@ -553,11 +553,9 @@ impl Runtime {
             }
         }
 
-        // add the message to the unchecked cache
-        self.unchecked_msg_cache
-            .insert((message.swap_id(), message.get_type()), message.clone());
-
         if message.is_protocol() {
+            self.unchecked_msg_cache
+                .insert((message.swap_id(), message.get_type()), message.clone());
             let swap_id = message.swap_id();
             info!(
                 "{} | Sent the {} protocol message",
