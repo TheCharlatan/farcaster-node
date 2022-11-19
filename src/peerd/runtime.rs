@@ -432,7 +432,8 @@ impl esb::Handler<ServiceBus> for Runtime {
                         ServiceId::Farcasterd,
                         BusMsg::Ctl(CtlMsg::ConnectFailed),
                     )?;
-                    // Exit the connecting peerd
+                    // Exit the connecting peerd, wait one second to ensure the message makes it out
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                     std::process::exit(0);
                 }
             };

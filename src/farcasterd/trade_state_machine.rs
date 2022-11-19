@@ -456,6 +456,10 @@ fn attempt_transition_to_taker_connect_or_take_offer(
             // connect to the remote peer
             match runtime.connect_peer(&peer_node_addr) {
                 Err(err) => {
+                    warn!(
+                        "Error connecting to remote peer {}, failed to take offer.",
+                        err
+                    );
                     event.complete_client_ctl(CtlMsg::Failure(Failure {
                         code: FailureCode::Unknown,
                         info: err.to_string(),
@@ -1013,7 +1017,7 @@ fn attempt_transition_from_restoring_swapd_to_swapd_running(
         mut accordant_syncer_up,
         mut swapd_up,
         mut connected,
-        expect_connection,
+        mut expect_connection,
         trade_role,
     } = restoring_swapd;
     match (event.request.clone(), event.source.clone()) {
@@ -1053,6 +1057,13 @@ fn attempt_transition_from_restoring_swapd_to_swapd_running(
                 swap_id.bright_blue_italic()
             );
             connected = true;
+        }
+        (BusMsg::Ctl(CtlMsg::ConnectFailed), source)
+            if ServiceId::Peer(node_addr_from_public_offer(&public_offer)) == source
+                && trade_role == TradeRole::Taker =>
+        {
+            expect_connection = false;
+            connected = false;
         }
         _ => {}
     }
