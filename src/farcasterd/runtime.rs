@@ -256,18 +256,26 @@ impl Runtime {
                         )?;
                     }
                     ServiceId::Peer(connection_id) => {
-                        self.spawning_services.remove(&source);
-                        if self.registered_services.insert(source.clone()) {
-                            info!(
-                                "Connection {} is registered; total {} connections are known",
-                                connection_id.bright_blue_italic(),
-                                self.count_connections().bright_blue_bold(),
-                            );
+                        if self
+                            .trade_state_machines
+                            .iter()
+                            .any(|tsm| tsm.awaiting_connect_from() == Some(source.clone()))
+                        {
+                            info!("Received hello from awaited peerd connection {}, will continue processing once Connected.", source);
                         } else {
-                            warn!(
-                                "Connection {} was already registered; the service probably was relaunched",
-                                connection_id.bright_blue_italic()
-                            );
+                            self.spawning_services.remove(&source);
+                            if self.registered_services.insert(source.clone()) {
+                                info!(
+                                    "Connection {} is registered; total {} connections are known",
+                                    connection_id.bright_blue_italic(),
+                                    self.count_connections().bright_blue_bold(),
+                                );
+                            } else {
+                                warn!(
+                                    "Connection {} was already registered; the service probably was relaunched",
+                                    connection_id.bright_blue_italic()
+                                );
+                            }
                         }
                     }
                     ServiceId::Swap(_) => {
@@ -832,7 +840,7 @@ impl Runtime {
             .any(|client_connection| client_connection == *peerd)
     }
 
-    fn count_connections(&self) -> usize {
+    pub fn count_connections(&self) -> usize {
         self.registered_services
             .iter()
             .filter(|s| matches!(s, ServiceId::Peer(..)))
