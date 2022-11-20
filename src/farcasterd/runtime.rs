@@ -786,6 +786,7 @@ impl Runtime {
             .filter(|service| {
                 if let ServiceId::Peer(..) = service {
                     if !self.connection_has_swap_client(service) {
+                        info!("Terminating {}", service);
                         endpoints
                             .send_to(
                                 ServiceBus::Ctl,
