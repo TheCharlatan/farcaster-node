@@ -523,31 +523,14 @@ impl Runtime {
                     ServiceId::Farcasterd,
                     BusMsg::Ctl(CtlMsg::PeerdTerminated),
                 )?;
+                // Return here, Farcaster is supposed to terminate us
+                return Ok(());
             }
 
             // This blocks until reconnected successfully
-            self.reconnect_peer();
-
-            endpoints.send_to(
-                ServiceBus::Ctl,
-                self.identity(),
-                ServiceId::Farcasterd,
-                BusMsg::Ctl(CtlMsg::Reconnected),
-            )?;
-
-            for cached_msg in self.unchecked_msg_cache.values() {
-                if let Err(err) = self
-                    .peer_sender
-                    .as_mut()
-                    .expect("should be connected")
-                    .send_message(cached_msg.clone())
-                {
-                    debug!(
-                        "Error re-sending cache messages to remote peer in peerd runtime: {}",
-                        err
-                    );
-                    break;
-                }
+            while let Err(err) = self.reconnect_peer(endpoints) {
+                info!("Failed to reconnect: {}, retrying.", err);
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
 
@@ -636,7 +619,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn reconnect_peer(&mut self) {
+    fn reconnect_peer(&mut self, endpoints: &mut Endpoints) -> Result<(), Error> {
         // flag_rx on the old receiver thread goes out of scope, thus making
         // the send fail as soon as the old receiver thread exited.
         while self.thread_flag_tx.send(()).is_ok() {
@@ -644,7 +627,12 @@ impl Runtime {
         }
         let mut attempt = 0;
         loop {
-            match start_connect_peer_listener_runtime(self.remote_node_addr.clone().expect("msChecked for connnecter"), self.local_node) {
+            match start_connect_peer_listener_runtime(
+                self.remote_node_addr
+                    .clone()
+                    .expect("Checked for connnecter"),
+                self.local_node,
+            ) {
                 Err(err) => {
                     attempt += 1;
                     trace!("Failed to reconnect: {}", err);
@@ -652,12 +640,27 @@ impl Runtime {
                     std::thread::sleep(std::time::Duration::from_secs(attempt));
                 }
                 Ok((peer_sender, thread_flag_tx)) => {
+                    info!("Reconnect success after {} attempts", attempt);
                     self.peer_sender = Some(peer_sender);
                     self.thread_flag_tx = thread_flag_tx;
                     break;
                 }
             }
         }
+        for cached_msg in self.unchecked_msg_cache.values() {
+            info!("re-emitting cached message after reconnect: {}", cached_msg);
+            self.peer_sender
+                .as_mut()
+                .expect("should be connected")
+                .send_message(cached_msg.clone())?;
+        }
+        endpoints.send_to(
+            ServiceBus::Ctl,
+            self.identity(),
+            ServiceId::Farcasterd,
+            BusMsg::Ctl(CtlMsg::Reconnected),
+        )?;
+        Ok(())
     }
 
     /// receive messages arriving over the bridge
@@ -719,29 +722,11 @@ impl Runtime {
                             BusMsg::Ctl(CtlMsg::FailedPeerMessage(cached_msg)),
                         )?;
                     }
-                }
-
-                // Blocks until reconnected successfully
-                self.reconnect_peer();
-                endpoints.send_to(
-                    ServiceBus::Ctl,
-                    self.identity(),
-                    ServiceId::Farcasterd,
-                    BusMsg::Ctl(CtlMsg::Reconnected),
-                )?;
-                for cached_msg in self.unchecked_msg_cache.values() {
-                    info!("re-emitting cached message after reconnect: {}", cached_msg);
-                    if let Err(err) = self
-                        .peer_sender
-                        .as_mut()
-                        .expect("should be connected")
-                        .send_message(cached_msg.clone())
-                    {
-                        debug!(
-                            "Error re-sending cache messages to remote peer in peerd runtime: {}",
-                            err
-                        );
-                        break;
+                } else {
+                    // This blocks until reconnected successfully
+                    while let Err(err) = self.reconnect_peer(endpoints) {
+                        info!("Failed to reconnect: {}, retrying.", err);
+                        std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                 }
             }
