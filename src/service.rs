@@ -301,7 +301,7 @@ where
                 ServiceId::Farcasterd,
                 BusMsg::Ctl(CtlMsg::Hello),
             )?;
-        } else {
+        } else if identity != ServiceId::Farcasterd {
             warn!(
                 "Not saying hello to Farcasterd: service {} is broker",
                 identity
