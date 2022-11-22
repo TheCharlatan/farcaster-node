@@ -502,11 +502,7 @@ impl Runtime {
         message: PeerMsg,
     ) -> Result<(), Error> {
         // Forward to the remote peer
-        debug!(
-            "{} | Message type: {}",
-            self.identity(),
-            message.get_type()
-        );
+        debug!("{} | Message type: {}", self.identity(), message.get_type());
         debug!(
             "{} | Forwarding peer message to the remote peer, request: {}",
             self.identity(),
@@ -653,7 +649,11 @@ impl Runtime {
             }
 
             req => {
-                warn!("{} | Ignoring request: {}", self.identity().label(), req.err());
+                warn!(
+                    "{} | Ignoring request: {}",
+                    self.identity().label(),
+                    req.err()
+                );
             }
         }
 
@@ -738,10 +738,7 @@ impl Runtime {
 
             PeerMsg::Pong(noise) => {
                 match self.awaited_pong {
-                    None => error!(
-                        "{} | Unexpected pong from the remote peer",
-                        self.identity()
-                    ),
+                    None => error!("{} | Unexpected pong from the remote peer", self.identity()),
                     Some(len) if len as usize != noise.len() => {
                         warn!(
                             "{} | Pong data size does not match requested with ping",
@@ -757,10 +754,7 @@ impl Runtime {
             }
 
             PeerMsg::PeerReceiverRuntimeShutdown => {
-                warn!(
-                    "{} | Exiting peerd receiver runtime",
-                    self.identity()
-                );
+                warn!("{} | Exiting peerd receiver runtime", self.identity());
                 endpoints.send_to(
                     ServiceBus::Ctl,
                     self.identity(),
