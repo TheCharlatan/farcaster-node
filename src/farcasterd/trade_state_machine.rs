@@ -984,7 +984,7 @@ fn attempt_transition_from_swapd_launched_to_swapd_running(
                  BusMsging swapd to be the {} of this swap",
             swap_id, local_trade_role,
         );
-        init_swap.peerd = peerd;
+        init_swap.peerd = peerd.clone();
         let init_swap_req = match local_trade_role {
             TradeRole::Maker => CtlMsg::MakeSwap(init_swap),
             TradeRole::Taker => CtlMsg::TakeSwap(init_swap),
