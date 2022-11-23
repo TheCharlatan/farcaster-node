@@ -919,7 +919,7 @@ fn transition_to_swapd_launched_tsm(
 }
 
 fn attempt_transition_from_swapd_launched_to_swapd_running(
-    mut event: Event,
+    event: Event,
     runtime: &mut Runtime,
     swapd_launched: SwapdLaunched,
 ) -> Result<Option<TradeStateMachine>, Error> {
@@ -930,7 +930,7 @@ fn attempt_transition_from_swapd_launched_to_swapd_running(
         mut arbitrating_syncer_up,
         mut accordant_syncer_up,
         mut swapd_up,
-        init_swap,
+        mut init_swap,
         local_trade_role,
         mut peerd_reconnected,
     } = swapd_launched;
@@ -984,16 +984,12 @@ fn attempt_transition_from_swapd_launched_to_swapd_running(
                  BusMsging swapd to be the {} of this swap",
             swap_id, local_trade_role,
         );
+        init_swap.peerd = peerd;
         let init_swap_req = match local_trade_role {
             TradeRole::Maker => CtlMsg::MakeSwap(init_swap),
             TradeRole::Taker => CtlMsg::TakeSwap(init_swap),
         };
-        if peerd_reconnected {
-            event.send_client_ctl(
-                ServiceId::Swap(swap_id),
-                CtlMsg::PeerdReconnected(peerd.clone()),
-            )?;
-        }
+
         event.complete_ctl_service(ServiceId::Swap(swap_id), init_swap_req)?;
 
         Ok(Some(TradeStateMachine::SwapdRunning(SwapdRunning {
