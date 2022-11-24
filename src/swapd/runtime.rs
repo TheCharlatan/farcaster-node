@@ -18,7 +18,6 @@ use super::{
     syncer_client::{log_tx_received, log_tx_seen, SyncerState, SyncerTasks},
     temporal_safety::TemporalSafety,
 };
-use crate::databased::checkpoint_send;
 use crate::service::Endpoints;
 use crate::syncerd::bitcoin_syncer::p2wpkh_signed_tx_fee;
 use crate::syncerd::types::{AddressTransaction, Boolean, Event, Task, TransactionConfirmations};
@@ -36,6 +35,7 @@ use crate::{
         Abort, HeightChanged, SweepSuccess, TaskTarget, TransactionRetrieved, XmrAddressAddendum,
     },
 };
+use crate::{databased::checkpoint_send, walletd::state::Wallet};
 use crate::{CtlServer, Error, LogStyle, Service, ServiceConfig, ServiceId};
 
 use std::collections::HashMap;
@@ -149,6 +149,7 @@ pub fn run(
         pending_peer_request: none!(),
         txs: none!(),
         public_offer,
+        wallet: None,
     };
     let broker = false;
     Service::run(config, runtime, broker)
@@ -170,6 +171,7 @@ pub struct Runtime {
     pending_peer_request: Vec<PeerMsg>, // Peer requests that failed and are waiting for reconnection
     txs: HashMap<TxLabel, bitcoin::Transaction>,
     public_offer: PublicOffer,
+    wallet: Option<Wallet>,
 }
 
 // FIXME Something more meaningful than ServiceId to index
