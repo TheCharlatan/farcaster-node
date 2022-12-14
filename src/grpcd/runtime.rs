@@ -42,6 +42,10 @@ use std::sync::Arc;
 use tokio::runtime::Builder;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::Mutex;
+use tonic_web::GrpcWebLayer;
+use tower_http::cors::AllowOrigin;
+use tower_http::cors::CorsLayer;
+use tower_layer::Layer;
 use uuid::Uuid;
 
 use crate::bus::{ctl::CtlMsg, info::InfoMsg, info::SwapInfo};
@@ -1423,13 +1427,12 @@ fn server_loop(
     addr: SocketAddr,
 ) -> tokio::task::JoinHandle<Result<(), Error>> {
     tokio::task::spawn(async move {
-        let web_service = tonic_web::config()
-            .allow_all_origins()
-            .enable(FarcasterServer::new(service));
-
+        let layer = CorsLayer::new().allow_origin(AllowOrigin::any());
+        let layer = GrpcWebLayer::new().layer(layer);
         if let Err(err) = Server::builder()
             .accept_http1(true)
-            .add_service(web_service)
+            .layer(layer)
+            .add_service(FarcasterServer::new(service))
             .serve(addr)
             .await
         {
