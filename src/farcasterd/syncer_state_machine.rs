@@ -155,14 +155,14 @@ fn attempt_transition_to_awaiting_syncer_or_awaiting_syncer_request(
                 }
             };
 
-            let syncer_task_id = TaskId(runtime.syncer_task_counter);
+            let syncer_task_id = runtime.syncer_task_counter.into();
             let syncer_task = Task::SweepAddress(SweepAddress {
                 id: syncer_task_id,
                 retry: false,
                 lifetime: u64::MAX,
                 addendum: sweep_address,
             });
-            runtime.syncer_task_counter += 1;
+            runtime.syncer_task_counter.increment();
 
             // check if a monero syncer is up
             if let Some(service_id) = syncer_up(
@@ -191,8 +191,8 @@ fn attempt_transition_to_awaiting_syncer_or_awaiting_syncer_request(
         }
 
         BusMsg::Ctl(CtlMsg::GetBalance(address_secret_key)) => {
-            let syncer_task_id = TaskId(runtime.syncer_task_counter);
-            runtime.syncer_task_counter += 1;
+            let syncer_task_id = runtime.syncer_task_counter.into();
+            runtime.syncer_task_counter.increment();
             let (blockchain, network) = match &address_secret_key {
                 AddressSecretKey::Bitcoin { address, .. } => {
                     (Blockchain::Bitcoin, address.network.into())
@@ -232,8 +232,8 @@ fn attempt_transition_to_awaiting_syncer_or_awaiting_syncer_request(
         }
 
         BusMsg::Ctl(CtlMsg::HealthCheck(blockchain, network)) => {
-            let syncer_task_id = TaskId(runtime.syncer_task_counter);
-            runtime.syncer_task_counter += 1;
+            let syncer_task_id = runtime.syncer_task_counter.into();
+            runtime.syncer_task_counter.increment();
             let syncer_task = Task::HealthCheck(HealthCheck { id: syncer_task_id });
 
             match syncer_up(

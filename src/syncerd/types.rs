@@ -11,7 +11,10 @@ use bitcoin::consensus::Decodable;
 use serde_with::DisplayFromStr;
 use strict_encoding::{StrictDecode, StrictEncode};
 
-use crate::bus::{info::Address, AddressSecretKey};
+use crate::{
+    bus::{info::Address, AddressSecretKey},
+    service::Counter,
+};
 
 // The strict encoding length limit
 pub const STRICT_ENCODE_MAX_ITEMS: u16 = u16::MAX - 1;
@@ -26,6 +29,12 @@ pub const STRICT_ENCODE_MAX_ITEMS: u16 = u16::MAX - 1;
 )]
 #[display(Debug)]
 pub struct TaskId(pub u32);
+
+impl From<Counter> for TaskId {
+    fn from(t: Counter) -> TaskId {
+        TaskId(t.count())
+    }
+}
 
 #[derive(Clone, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Hash)]
 #[cfg_attr(

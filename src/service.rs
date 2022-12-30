@@ -90,6 +90,31 @@ impl FromStr for ClientName {
     }
 }
 
+#[derive(
+    Clone, Copy, Debug, Display, StrictEncode, StrictDecode, Eq, PartialEq, Ord, PartialOrd, Hash,
+)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
+#[display(Debug)]
+pub struct Counter(u32);
+
+impl Counter {
+    pub fn new() -> Self {
+        Counter(0)
+    }
+
+    pub fn increment(&mut self) {
+        self.0 = self.0.overflowing_add(1).0;
+    }
+
+    pub fn count(self) -> u32 {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct ServiceConfig {
     /// ZMQ socket for peer-to-peer network message bus
@@ -151,7 +176,7 @@ pub enum ServiceId {
     Grpcd,
 
     #[display("grpcd_client<{0}>")]
-    GrpcdClient(u64),
+    GrpcdClient(u32),
 
     #[display("databased")]
     Database,

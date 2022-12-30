@@ -10,7 +10,6 @@ use super::{
     temporal_safety::TemporalSafety,
     StateReport,
 };
-use crate::swapd::temporal_safety::SWEEP_MONERO_THRESHOLD;
 use crate::swapd::Opts;
 use crate::syncerd::types::{Event, TransactionConfirmations};
 use crate::syncerd::{Abort, Task, TaskTarget};
@@ -22,6 +21,7 @@ use crate::{
     bus::{BusMsg, ServiceBus},
     syncerd::{HeightChanged, TransactionRetrieved, XmrAddressAddendum},
 };
+use crate::{service::Counter, swapd::temporal_safety::SWEEP_MONERO_THRESHOLD};
 use crate::{
     service::{Endpoints, Reporter},
     syncerd::AddressTransaction,
@@ -87,7 +87,7 @@ pub fn run(config: ServiceConfig, opts: Opts) -> Result<(), Error> {
 
     temporal_safety.valid_params()?;
     let tasks = SyncerTasks {
-        counter: 0,
+        counter: Counter::new(),
         watched_addrs: none!(),
         watched_txs: none!(),
         retrieving_txs: none!(),

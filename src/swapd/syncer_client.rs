@@ -6,7 +6,7 @@
 
 use crate::{
     bus::ServiceBus,
-    service::{Endpoints, LogStyle},
+    service::{Counter, Endpoints, LogStyle},
     syncerd::{
         Abort, AddressAddendum, BroadcastTransaction, BtcAddressAddendum, GetTx, SweepAddress,
         SweepAddressAddendum, SweepBitcoinAddress, SweepMoneroAddress, TaskTarget,
@@ -34,7 +34,7 @@ use crate::{
 use super::runtime::SwapLogging;
 
 pub struct SyncerTasks {
-    pub counter: u32,
+    pub counter: Counter,
     pub watched_txs: HashMap<TaskId, TxLabel>,
     pub final_txs: HashMap<TxLabel, bool>,
     pub watched_addrs: HashMap<TaskId, TxLabel>,
@@ -47,8 +47,8 @@ pub struct SyncerTasks {
 
 impl SyncerTasks {
     pub fn new_taskid(&mut self) -> TaskId {
-        self.counter += 1;
-        TaskId(self.counter)
+        self.counter.increment();
+        self.counter.into()
     }
 }
 

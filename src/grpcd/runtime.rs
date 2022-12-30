@@ -18,6 +18,7 @@ use crate::bus::HealthCheckSelector;
 use crate::bus::OptionDetails;
 use crate::bus::Outcome;
 use crate::grpcd::runtime::farcaster::NetworkSelector;
+use crate::service::Counter;
 use crate::service::Endpoints;
 use crate::swapd::StateReport;
 use crate::syncerd::Health;
@@ -285,21 +286,10 @@ impl From<farcaster::NetworkSelector> for HealthCheckSelector {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Hash, Display)]
-#[display(Debug)]
-pub struct IdCounter(u64);
-
-impl IdCounter {
-    fn increment(&mut self) -> u64 {
-        self.0 += 1;
-        self.0
-    }
-}
-
 pub struct FarcasterService {
-    tokio_tx_request: tokio::sync::mpsc::Sender<(u64, BusMsg)>,
-    pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<BusMsg>>>>,
-    id_counter: Arc<Mutex<IdCounter>>,
+    tokio_tx_request: tokio::sync::mpsc::Sender<(u32, BusMsg)>,
+    pending_requests: Arc<Mutex<HashMap<u32, tokio::sync::oneshot::Sender<BusMsg>>>>,
+    id_counter: Arc<Mutex<Counter>>,
 }
 
 impl FarcasterService {
@@ -308,7 +298,8 @@ impl FarcasterService {
         msg: BusMsg,
     ) -> Result<tokio::sync::oneshot::Receiver<BusMsg>, Status> {
         let mut id_counter = self.id_counter.lock().await;
-        let id = id_counter.increment();
+        id_counter.increment();
+        let id = id_counter.count();
         drop(id_counter);
 
         if let Err(error) = self.tokio_tx_request.send((id, msg)).await {
@@ -1288,7 +1279,7 @@ pub struct GrpcServer {
 }
 
 fn request_loop(
-    mut tokio_rx_request: tokio::sync::mpsc::Receiver<(u64, BusMsg)>,
+    mut tokio_rx_request: tokio::sync::mpsc::Receiver<(u32, BusMsg)>,
     tx_request: zmq::Socket,
 ) -> tokio::task::JoinHandle<Result<(), Error>> {
     tokio::task::spawn(async move {
@@ -1315,8 +1306,8 @@ fn request_loop(
 }
 
 fn response_loop(
-    mpsc_rx_response: Receiver<(u64, BusMsg)>,
-    pending_requests_lock: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<BusMsg>>>>,
+    mpsc_rx_response: Receiver<(u32, BusMsg)>,
+    pending_requests_lock: Arc<Mutex<HashMap<u32, tokio::sync::oneshot::Sender<BusMsg>>>>,
 ) -> tokio::task::JoinHandle<Result<(), Error>> {
     tokio::task::spawn(async move {
         loop {
@@ -1373,7 +1364,7 @@ fn server_loop(
 impl GrpcServer {
     fn run(
         &mut self,
-        rx_response: Receiver<(u64, BusMsg)>,
+        rx_response: Receiver<(u32, BusMsg)>,
         tx_request: zmq::Socket,
     ) -> Result<(), Error> {
         // We panic here, because we cannot recover from a bad configuration
@@ -1394,13 +1385,13 @@ impl GrpcServer {
                 let (tokio_tx_request, tokio_rx_request) = tokio::sync::mpsc::channel(1000);
 
                 let pending_requests: Arc<
-                    Mutex<HashMap<u64, tokio::sync::oneshot::Sender<BusMsg>>>,
+                    Mutex<HashMap<u32, tokio::sync::oneshot::Sender<BusMsg>>>,
                 > = Arc::new(Mutex::new(map![]));
                 let request_handle = request_loop(tokio_rx_request, tx_request);
                 let response_handle = response_loop(rx_response, Arc::clone(&pending_requests));
 
                 let service = FarcasterService {
-                    id_counter: Arc::new(Mutex::new(IdCounter(0))),
+                    id_counter: Arc::new(Mutex::new(Counter::new())),
                     tokio_tx_request,
                     pending_requests,
                 };
@@ -1440,7 +1431,7 @@ impl GrpcServer {
     }
 }
 
-type IdBusMsgPair = (u64, BusMsg);
+type IdBusMsgPair = (u32, BusMsg);
 
 pub fn run(config: ServiceConfig, grpc_port: u16, grpc_ip: String) -> Result<(), Error> {
     let (tx_response, rx_response): (Sender<IdBusMsgPair>, Receiver<IdBusMsgPair>) =
@@ -1472,7 +1463,7 @@ pub fn run(config: ServiceConfig, grpc_port: u16, grpc_ip: String) -> Result<(),
 
 pub struct Runtime {
     identity: ServiceId,
-    tx_response: Sender<(u64, BusMsg)>,
+    tx_response: Sender<(u32, BusMsg)>,
     grpc_port: u16,
     grpc_ip: String,
 }

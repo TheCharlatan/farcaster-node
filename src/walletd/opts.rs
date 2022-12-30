@@ -5,6 +5,7 @@
 // https://opensource.org/licenses/MIT.
 
 use crate::opts::FARCASTER_KEY_FILE;
+use crate::service::Counter;
 use clap::ValueHint;
 use std::path::PathBuf;
 use std::{fs, io::Read};
@@ -58,15 +59,6 @@ pub struct KeyOpts {
     pub key_file: String,
 }
 
-#[derive(StrictEncode, StrictDecode, Clone, PartialEq, Eq, Debug)]
-pub struct Counter(pub u32);
-impl Counter {
-    fn increment(&mut self) -> u32 {
-        self.0 += 1;
-        self.0
-    }
-}
-
 /// Hold secret keys and seeds
 #[derive(StrictEncode, StrictDecode, Clone, PartialEq, Eq, Debug)]
 pub struct NodeSecrets {
@@ -99,7 +91,7 @@ impl NodeSecrets {
                 key_file: key_file.clone(),
                 peerd_secret_key: peer_private_key,
                 wallet_seed,
-                wallet_counter: Counter(0),
+                wallet_counter: Counter::new(),
             };
 
             let key_file_handle = fs::File::create(&key_file).unwrap_or_else(|_| {
@@ -147,7 +139,7 @@ impl NodeSecrets {
         });
         self.strict_encode(key_file_handle)
             .expect("Unable to save incremented wallet counter");
-        self.wallet_counter.0
+        self.wallet_counter.count()
     }
 
     pub fn wallet_seed(&self) -> [u8; 32] {

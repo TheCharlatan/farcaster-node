@@ -14,6 +14,7 @@ use crate::farcasterd::stats::Stats;
 use crate::farcasterd::syncer_state_machine::{SyncerStateMachine, SyncerStateMachineExecutor};
 use crate::farcasterd::trade_state_machine::{TradeStateMachine, TradeStateMachineExecutor};
 use crate::farcasterd::Opts;
+use crate::service::Counter;
 use crate::syncerd::{AddressBalance, TaskAborted};
 use crate::syncerd::{Event as SyncerEvent, HealthResult, SweepSuccess, TaskId};
 use crate::{
@@ -91,7 +92,7 @@ pub fn run(
         progress_subscriptions: none!(),
         stats: none!(),
         config,
-        syncer_task_counter: 0,
+        syncer_task_counter: Counter::new(),
         trade_state_machines: vec![],
         syncer_state_machines: none!(),
     };
@@ -113,9 +114,9 @@ pub struct Runtime {
     pub deals: HashSet<Deal>, // The set of all known deals. Includes open, consumed and ended deals includes open, consumed and ended deals
     progress: HashMap<ServiceId, VecDeque<ProgressStack>>, // A mapping from Swap ServiceId to its sent and received progress messages (Progress, Success, Failure)
     progress_subscriptions: HashMap<ServiceId, HashSet<ServiceId>>, // A mapping from a Client ServiceId to its subsribed swap progresses
-    pub stats: Stats,             // Some stats about deals and swaps
-    pub config: Config,           // The complete node configuration
-    pub syncer_task_counter: u32, // A strictly incrementing counter of issued syncer tasks
+    pub stats: Stats,                 // Some stats about deals and swaps
+    pub config: Config,               // The complete node configuration
+    pub syncer_task_counter: Counter, // A strictly incrementing counter of issued syncer tasks
     pub trade_state_machines: Vec<TradeStateMachine>, // New trade state machines are inserted on creation and destroyed upon state machine end transitions
     syncer_state_machines: HashMap<TaskId, SyncerStateMachine>, // New syncer state machines are inserted by their syncer task id when sending a syncer request and destroyed upon matching syncer request receival
 }

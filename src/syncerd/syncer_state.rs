@@ -12,7 +12,7 @@ use farcaster_core::blockchain::Blockchain;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::Sender as TokioSender;
 
-use crate::service::LogStyle;
+use crate::service::{Counter, LogStyle};
 use crate::syncerd::*;
 use hex;
 
@@ -24,19 +24,9 @@ pub type GetTxServiceIdPair = (GetTx, ServiceId);
 #[display(Debug)]
 pub struct InternalId(u32);
 
-impl From<TaskCounter> for InternalId {
-    fn from(counter: TaskCounter) -> Self {
-        Self(counter.0)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Display, Debug)]
-#[display(Debug)]
-struct TaskCounter(pub u32);
-
-impl TaskCounter {
-    fn increment(&mut self) {
-        self.0 += 1;
+impl From<Counter> for InternalId {
+    fn from(counter: Counter) -> Self {
+        Self(counter.count())
     }
 }
 
@@ -53,7 +43,7 @@ pub struct SyncerState {
     pub unseen_transactions: HashSet<InternalId>,
     pub sweep_addresses: HashMap<InternalId, SweepAddress>,
     tx_event: TokioSender<BridgeEvent>,
-    task_count: TaskCounter,
+    task_count: Counter,
     pub subscribed_addresses: HashSet<AddressAddendum>,
     pub fee_estimation: Option<FeeEstimations>,
     pub pending_broadcasts: HashSet<(BroadcastTransaction, ServiceId)>,
@@ -99,7 +89,7 @@ impl SyncerState {
             unseen_transactions: HashSet::new(),
             sweep_addresses: HashMap::new(),
             tx_event,
-            task_count: TaskCounter(0),
+            task_count: Counter::new(),
             blockchain,
             subscribed_addresses: HashSet::new(),
             fee_estimation: None,
